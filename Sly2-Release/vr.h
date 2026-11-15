@@ -165,6 +165,11 @@ bool FTakeGripPress(int k);
 // swings, no right trigger, while it is).
 void SetGrabZone(int k, bool f);
 void SetPocketNear(bool f);
+// (pickpocket = hold, Sly) vrinteract, each step: a pocket the game would pick now (Sly inside a guard's pickpocket
+// volume). There, B held is the steal stance instead of Circle: no swing, no attack, no uppercut while it is, and
+// vrinteract steals when the cane's hook (or a bare hand) at the pocket is flicked (or the hand grips).
+void SetPocketAvailable(bool f);
+bool FStealStance();
 // (vrinteract) PS2 buttons (joy.h BTN_*) pressed for csteps steps from the next read (a tap); held: pressed while asked
 // each step (cstep 1 every step).
 void RequestButtons(uint16_t grf, int csteps);
@@ -249,6 +254,8 @@ inline bool FGripHeld(int) { return false; }
 inline bool FTakeGripPress(int) { return false; }
 inline void SetGrabZone(int, bool) {}
 inline void SetPocketNear(bool) {}
+inline void SetPocketAvailable(bool) {}
+inline bool FStealStance() { return false; }
 inline void RequestButtons(uint16_t, int) {}
 inline void SetClimbStick(bool, float, float) {}
 inline bool FGlideLines(float*, float*) { return false; }

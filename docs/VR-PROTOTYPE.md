@@ -58,7 +58,9 @@ and `[murray]` change it per character, and the `SLY2N_VR_*` variables override 
   `cane_rot` (degrees about the grip's axes), `cane_offset` (cm). The right hand closes on it as the animation holds
   it. Holstered (grip behind the right shoulder, `vr.cpp` FRightHandAtHolster): across the back, both hands bare, no
   attacks.
-- **The physical interactions** (`vrinteract.cpp`, at step time): `pickpocket = grab` (a hand or the cane's hook at a
+- **The physical interactions** (`vrinteract.cpp`, at step time): `pickpocket = hold` (0.1.3, the default: at a pocket
+  the game would pick, B held is a stance with no attacks; the cane's hook brought there and flicked steals),
+  `pickpocket = grab` (a hand or the cane's hook at a
   readied pocket, then a grip: PloTakePocket and the prize collected; no prize pose, so no prize card, also for B),
   `climb = grab` (a grip at one of the game's attach targets presses Circle; hand over hand on poles drives the stick;
   ledges held while a grip is), `gadget_menu = watch` (the right wrist's inside turned to the eyes shows the gadgets

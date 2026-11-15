@@ -8,7 +8,7 @@ letterbox floated). 0.1.1 fixes those: a T-pose calibration at the title, cane o
 game's camera with no bars, sprint on the left stick click, pause on a long Y press. 0.1.2 (from the player's
 0.1.1 test notes, `Sly2-VR-0.1.2-feedback.md`) makes first person physical, Contractors-style: Sly's hands on the
 controllers, the cane held in the grip by its own shape and holstered on the back (grip behind the right shoulder),
-pickpocketing by reaching and gripping (no blue prize card), grab climbing, a wristwatch gadget picker on the right
+pickpocketing (0.1.3: hold B at a pocket, then hook and flick the cane; no blue prize card), grab climbing, a wristwatch gadget picker on the right
 wrist, paraglider line steering, haptics, and Options > VR Settings. The player cares most about **first person**.
 
 The player uses a **Meta Quest 3 streamed with Steam Link** (SteamVR is the OpenXR runtime).
@@ -120,7 +120,8 @@ character. **Reload in game:** hold the left stick click + A (or Ctrl+F8 on the 
 | `sly_size` / `cane_size` | 1.1 / 0.9 | You as a bigger Sly (the world looks smaller); the drawn cane's size. Also on Options > VR Settings. |
 | `cane_rot` / `cane_offset` | 0,0,0 | The cane's turn (degrees) and shift (cm) in the grip (grip axes: x palm, y back of the hand, z little finger). |
 | `gadget_menu` | watch | `watch` = the right-wrist picker; `button` = Y opens the game's gadget menu. |
-| `pickpocket` / `climb` | grab | `grab` = reach and grip (B still works); `button` = B only. |
+| `pickpocket` | hold | `hold` = hold B at a pocket (no attacks), hook and flick; `grab` = grip at it, no B; `button` = the game's B. |
+| `climb` | grab | `grab` = reach and grip (B still works); `button` = B only. |
 | `glide` | lines | `lines` = both hands raised and gripping steer the paraglider; `stick` = the stick. |
 | `scale` | 100 | Game units per metre of the player's movement (a guess). World too small → lower; too big → raise. |
 | `mirror` | left | Desktop window: `left` (left eye + HUD), `eye`, `hud`. |
@@ -148,7 +149,7 @@ cal, Alt+F8 height cal. Tapping the left stick click alone toggles sprint; holdi
 | The cane sits wrong in the hand | Options > VR Settings > Cane Turn / Cane Shift (live). Log with `-Bones`: the `vr cane:` line (shaft found, grip, hook). |
 | A hand is on the wrong bone | `-Bones` log `vr hands:` table; `hands = L,R` in that character's section. |
 | The watch never opens / is sideways | Inside of the right wrist toward the eyes, hand within 0.65 m of the head; `SLY2N_VR_WATCH_FLIP=1` turns it 180 degrees; `gadget_menu = button` falls back to Y. |
-| Grabs don't happen | The zone ticks the hand when in reach; else `climb = button` / `pickpocket = button` and use B. |
+| Grabs don't happen | The zone ticks the hand when in reach (pockets: hold B first, with `pickpocket = hold`); else `climb = button` / `pickpocket = grab` or `button`. |
 | Stray sprint / glider when grabbing | Note where; the grip's R1 is held back 2 steps for a grab to take it. |
 
 ### The T-pose (0.1.1)

@@ -65,13 +65,24 @@ One rule everywhere: **grab with the grip, use with the trigger.**
 
   Holstered means bare hands: no attack from the trigger, from swings or from X. Grip there again to draw it.
 
-### Pickpocketing (Sly)
-- A guard's pocket can be taken when:
-  - the game itself would allow a steal (the guard is unalerted and Sly is inside its pickpocket volume, like the B prompt);
-  - and a hand is within about 40 game units of the pocket, or the cane's hook within about 35.
-- The hand ticks when it is in reach. Gripping takes the prize at once, with a strong buzz and then a weaker one.
-- **No blue prize card**, either for the grip or for B.
-- While a pocket is in reach, swings and the right-trigger attack are off, so a reach doesn't start a fight.
+### Pickpocketing (Sly) - 0.1.3: hold B (`pickpocket = hold`, the default)
+- A pocket can be stolen when the game itself would allow a steal: the guard is unalerted and Sly is inside its
+  pickpocket volume, the same moment the game's B prompt appears.
+- There, **pressing B no longer steals**: **holding B is the steal stance.** While B is held the cane cannot attack
+  (no swing gestures, no right trigger, no X uppercut). B stays the stance until released, even if the guard walks off.
+- **Stance steps:**
+  - Bring the cane's **hook** within about 35 game units of the pocket. The right hand ticks, then beats softly while
+    it is in reach.
+  - **Flick the cane:** right-hand speed 1.2 m/s or more. The hook still counts for 15 steps (a quarter second) after
+    it was in reach, since the flick carries it away.
+  - With the cane holstered, a bare hand within about 40 units can flick or grip instead.
+- Each steal has a strong buzz then a weaker one, and a 0.5 s pause before the next.
+- **No blue prize card.**
+- Outside the stance, attacks near guards work normally (you can still fight).
+- Other modes:
+  - `pickpocket = grab` (0.1.2's way): grip at a pocket with no B needed. Attacks are off while a hand or the hook is
+    in reach.
+  - `pickpocket = button`: the game's own B press.
 
 ### Wristwatch (gadgets)
 - It opens when the inside of the **right** wrist faces the eyes (within 40°, staying open up to 50°) and the hand is
@@ -118,7 +129,7 @@ character. Those with a menu row are also on **Options > VR Settings** (left/rig
 | `cane_rot` | 0,0,0 | Cane Turn X/Y/Z (±90° in 5° steps) | The cane's turn in the grip, degrees about the grip's axes (see "Grip axes" below). |
 | `cane_offset` | 0,0,0 | Cane Shift X/Y/Z (±10 cm) | The cane's shift in the grip, cm along the same axes. |
 | `gadget_menu` | watch | Gadget Menu | `button` = Y opens the game's menu (the fallback if the watch misbehaves). |
-| `pickpocket` | grab | Pickpocket | `button` = B only (no grab zones near guards). |
+| `pickpocket` | hold | Pickpocket (Hold B / Grab / Button) | `hold` = hold B, then hook and flick; `grab` = grip at a pocket, no B; `button` = the game's B. |
 | `climb` | grab | Climbing | `button` = B only (no grab zones at poles and ledges). |
 | `glide` | lines | Glider | `stick` = the stick only. |
 | `swing_speed` | 2.5 | (none) | m/s for a cane swing to attack. Accidental attacks → raise it. |
@@ -169,8 +180,10 @@ them.
 | Watch upside down | `SLY2N_VR_WATCH_FLIP=1` | |
 | Watch sideways or tilted badly | Note the arm position when reading it | Escalate: the face orientation needs changing in code. |
 | Watch laser misses the entries | Note which entry it lands on vs. aimed at | Escalate. |
-| Pocket never ticks | Approach from behind until the game's own B prompt would show | `pickpocket = button`; escalate with distance notes. |
-| Steals by accident | Note what the hand was doing | `pickpocket = button`. |
+| Pocket never ticks | Approach from behind until the game's own B prompt shows, then hold B | `pickpocket = button`; escalate with distance notes. |
+| B starts the stance but the flick never steals | Bring the hook closer (the beat must be felt) and flick sharply | Escalate: `kMpsStealFlick = 1.2` / `kSReachPocketHook = 35` in vrinteract.cpp. |
+| Steals by accident while holding B | Note the motion | Escalate: raise `kMpsStealFlick`. |
+| The cane attacks while holding B | Escalate with the log | That's a bug: the stance should block all attacks. |
 | Poles / ledges don't grab | The hand should tick at the pole | `climb = button` (B works); escalate. |
 | Drops off ledges unexpectedly | Keep the grip squeezed (releasing it lets go) | `climb = button` and hold B instead. |
 | Hand over hand climbs the wrong way | Note the pole (vertical, sloped, level) and the pull direction | Escalate (a sign to flip in code). |
@@ -228,6 +241,7 @@ entry gives the file, the constant, its default and its meaning.
 
 **`vrinteract.cpp`:**
 - Reaches: `kSReachPocket = 40`, `kSReachPocketHook = 35`, `kSReachClimb = 45` (game units; about 100 per metre).
+- Hold-B steal: `kMpsStealFlick = 1.2` m/s, `kcstepHookRecent = 15` steps, `kcstepStealCool = 30`, `kcstepStanceBeat = 18`.
 - `kMpsClimbFull = 0.9`: hand speed in m/s for full climb speed. Hand over hand takes over the stick above 0.35 of that.
 - Steal buzz: 0.8 / 0.08 s, then 0.45 / 0.05 s after `kCstepBuzz2 = 8` steps.
 

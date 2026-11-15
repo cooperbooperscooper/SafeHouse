@@ -47,12 +47,19 @@ constexpr float kSReachClimb = 45.0f;
 constexpr float kMpsClimbFull = 0.9f;
 // The steal's buzz: a strong one at once, a short weaker one after these steps (about 0.13 s at 60 a second).
 constexpr int kCstepBuzz2 = 8;
+// (pickpocket = hold) the steal's flick: the hand at the pocket moving this fast (m/s; a swing attack needs swing_speed,
+// 2.5), the hook counting this many steps after it was there (a flick carries it away), the pause after a steal, and the
+// soft beat in the hand while at the pocket in the stance
+constexpr float kMpsStealFlick = 1.2f;
+constexpr int kcstepHookRecent = 15, kcstepStealCool = 30, kcstepStanceBeat = 18;
 
 struct STATE
 {
     bool afZone[2]{};                 // the hands' grab zones as set on the last step (a press taken there too)
     int kBuzz2 = -1;                  // the steal's second buzz: its hand and the steps to it
     int cstepBuzz2 = 0;
+    int cstepHookNear = 1000;         // (pickpocket = hold) steps since the hook was at the pocket, the steal's pause, the beat
+    int cstepStealCool = 0, cstepStanceBeat = 0;
     ACTOR* paWatch = nullptr;         // the watch's entries as last sent: whose, the gadgets, their names, slot 0's
     std::vector<int> aidWatch;
     std::vector<std::string> astrWatch;
@@ -97,6 +104,7 @@ void ClearZones()
         s.afZone[k] = false;
     }
     vr::SetPocketNear(false);
+    vr::SetPocketAvailable(false);
     vr::SetClimbStick(false, 0.0f, 0.0f);
 }
 
@@ -312,17 +320,43 @@ void VrStepInteract(SW* psw)
     glm::vec3 posHook(0.0f);
     const bool fHook = p.psly && vr::FCaneDrawn() && FVrCaneHook(&posHook);
 
-    // (a) pockets: each bare hand, or the hook in place of the right hand while the cane is drawn
+    // (a) pockets (pickpocket: 0 hold B, then the hook or a bare hand at the pocket flicked; 1 a grip at it, no B; 2 the
+    // game's B only): each bare hand, or the hook in place of the right hand while the cane is drawn. With hold, B at a
+    // pocket the game would pick is the stance (vr.cpp: no attacks while it is held); reach and steals only in it
     bool afPocket[2]{};
     LO* ploGuard = nullptr;
     glm::vec3 posPocket(0.0f);
-    if (pr.fGrabSteal && FPocketPoint(p.psly, &ploGuard, &posPocket))
+    const bool fAvail = p.psly && pr.nSteal != 2 && FPocketPoint(p.psly, &ploGuard, &posPocket);
+    vr::SetPocketAvailable(fAvail && pr.nSteal == 0);
+    const bool fStance = pr.nSteal == 0 && vr::FStealStance();
+    if (fAvail && (pr.nSteal == 1 || fStance))
         for (int k = 0; k < 2; ++k)
         {
             if (k == 1 && fHook) afPocket[k] = glm::distance(posHook, posPocket) < kSReachPocketHook;
             else afPocket[k] = afHand[k] && glm::distance(aposHand[k], posPocket) < kSReachPocket;
         }
     const bool fPocketNear = afPocket[0] || afPocket[1];
+    // the hold's steal: in the stance, the hook or bare hand at the pocket flicked (the hook still counts a moment after
+    // it was there); one steal, then a pause
+    bool fStolen = false;
+    if (s.cstepStealCool > 0) --s.cstepStealCool;
+    s.cstepHookNear = afPocket[1] && fHook ? 0 : std::min(s.cstepHookNear + 1, 1000);
+    if (fStance && fAvail && s.cstepStealCool == 0)
+        for (int k = 0; k < 2 && !fStolen; ++k)
+        {
+            const bool fAt = k == 1 && fHook ? s.cstepHookNear <= kcstepHookRecent : afPocket[k];
+            glm::vec3 velWorld(0.0f), velLocal(0.0f);
+            if (!fAt || !vr::FGripVelocityLast(k, &velWorld, &velLocal) || glm::length(velLocal) < kMpsStealFlick) continue;
+            Steal(ploGuard, k);
+            fStolen = true;
+            s.cstepStealCool = kcstepStealCool;
+        }
+    // (at the pocket in the stance: a soft beat in that hand, so the reach is felt before the flick)
+    if (fStance && fPocketNear && !fStolen && ++s.cstepStanceBeat >= kcstepStanceBeat)
+    {
+        s.cstepStanceBeat = 0;
+        vr::Pulse(afPocket[1] ? 1 : 0, 0.15f, 0.02f);
+    }
 
     // (b) climbing: the hand's nearest tracked candidate it can grab now (the right hand's hook too), unless at a pocket
     // (Circle would steal there); while holding on, both hands hold
@@ -352,13 +386,12 @@ void VrStepInteract(SW* psw)
     // last step's, so a press made there is not left over)
     bool afZone[2]{};
     for (int k = 0; k < 2; ++k) afZone[k] = afPocket[k] || aploClimb[k] || fHold;
-    bool fStolen = false;
     for (int k = 0; k < 2; ++k)
     {
         if (!(afZone[k] || s.afZone[k]) || !vr::FTakeGripPress(k) || !afZone[k]) continue;
         if (afPocket[k])
         {
-            if (!fStolen) Steal(ploGuard, k);
+            if (!fStolen && s.cstepStealCool == 0) Steal(ploGuard, k), s.cstepStealCool = kcstepStealCool;
             fStolen = true;
         }
         else if (aploClimb[k])
@@ -372,7 +405,7 @@ void VrStepInteract(SW* psw)
         vr::SetGrabZone(k, afZone[k]);
         s.afZone[k] = afZone[k];
     }
-    vr::SetPocketNear(fPocketNear && !fStolen);
+    vr::SetPocketNear(pr.nSteal == 1 && fPocketNear && !fStolen);   // (hold: the stance is what keeps the cane quiet)
 
     // holding on: Circle held while a grip is; on a pole, hand over hand: the gripping hand pulled one way moves you the
     // other, as the stick would (its right / up from your head's view, as the game reads the stick through its camera:

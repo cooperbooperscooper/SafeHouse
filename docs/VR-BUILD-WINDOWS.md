@@ -49,9 +49,11 @@ for how the mod works.
 
 ## Build
 
-In PowerShell:
+In PowerShell (the toolchain file also reads `CANE_MINGW_ROOT` from the environment: CMake's compiler checks run
+without the `-D` value, and the configure fails with "Set CANE_MINGW_ROOT" if it isn't set):
 
 ```powershell
+$env:CANE_MINGW_ROOT = "C:\llvm-mingw"
 cmake -S C:\sly2vr\src -B C:\sly2vr\build -G Ninja `
   -DCMAKE_TOOLCHAIN_FILE=C:/sly2vr/src/cmake/mingw-toolchain.cmake -DCANE_MINGW_ROOT=C:/llvm-mingw `
   -DCMAKE_BUILD_TYPE=Release -DCANE_BUILD_GAME=OFF -DCANE_BUILD_LAUNCHER=OFF -DCANE_BUILD_SLY3=OFF `

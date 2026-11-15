@@ -55,7 +55,8 @@ struct PROFILE
     glm::vec3 degCane{0.0f};      // the cane's turn in your grip, degrees about the grip's x (palm), y (back), z (fist)
     glm::vec3 cmCane{0.0f};       // its shift in your grip, centimetres along the same axes
     int nGadgetMenu = 0;          // 0: the wristwatch (turn your right wrist to you, point, left trigger); 1: Y (Select)
-    bool fGrabSteal = true;       // pockets picked by gripping at them (B still works); false: B only
+    int nSteal = 0;               // pockets: 0 hold B at one and flick the cane's hook (or grip it bare-handed), 1 grip
+                                  // at one (no B needed), 2 B only (the game's way)
     bool fGrabClimb = true;       // poles, pipes, hooks and ledges grabbed by gripping at them; false: B only
     bool fGlideLines = true;      // the paraglider steered by your raised hands as on lines; false: the stick
 };

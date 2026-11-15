@@ -187,6 +187,12 @@ struct STATE
     int acstepGripPending[2]{};
     bool afGripGrab[2]{};         // (this hold is a grab: its button kept from the game until let go)
     bool afGrabZone[2]{}, fPocketNear = false;   // (vrinteract's, set the step before)
+    // the steal stance (pickpocket = hold, Sly): a pocket the game would pick (vrinteract, the step before); B pressed
+    // there, held (kept from the game until let go)
+    bool fPocketAvail = false, fStealB = false, fStealStance = false;
+    bool fPocketAvailWas = false;   // (the read before's: a B already held as Sly steps into a pocket's reach)
+    bool fStealBLatch = false;      // (B latched by the stance, until let go: a menu in between does not end its claim)
+    bool fSwingQuiet = false;       // (the stance just ended: no swing until the cane has slowed down)
     glm::vec3 avelGripLocal[2]{};  // (each grip's velocity as of the last read: LOCAL, m/s)
     bool afVelGrip[2]{};
     int acstepReq[16]{};          // (RequestButtons: the steps left for each PS2 bit)
@@ -1021,6 +1027,7 @@ void DropInteractions()
     for (int k = 0; k < 2; ++k) s.afGripPending[k] = false, s.acstepGripPending[k] = 0;
     std::fill(std::begin(s.acstepReq), std::end(s.acstepReq), 0);
     s.fClimbStick = false;
+    s.fPocketAvail = s.fStealB = s.fStealStance = s.fPocketAvailWas = s.fSwingQuiet = false;
 }
 
 // Each controller read: both grips' velocities (LOCAL, m/s: the swing, FGripVelocityLast), at the last frame's time
@@ -1643,6 +1650,7 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     }
     // (0.1.2) the physical interactions (vr.h): only first person at the player's head, with no menu up
     const bool fPhys = FFirstPersonEyes() && !fMenu;
+    const bool fStanceWas = s.fStealStance;   // (before DropInteractions: a menu ending the stance ends it as B would)
     if (!fPhys) DropInteractions();
     StepTorso(t);   // (FHolsterWorld follows it in a menu too)
     // the holster behind the right shoulder (Sly): a tick on reaching it; the right grip's press there draws or
@@ -1697,6 +1705,47 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         }
         if (fSly && fBusy) agrfOff[Ctl_TriggerR] |= kgrfAttack;
         if (fBusy || s.afGrabZone[0] || s.afGripGrab[0] || s.afGripGrab[1]) fNoSwing = true;
+        // the steal stance (pickpocket = hold): at a pocket the game would pick, B is not Circle (no instant steal, no
+        // stray interaction) but the stance while held: no swing, no attack, no uppercut, so the cane can be brought to
+        // the pocket and flicked to take it (vrinteract); B stays the stance until let go, even if the guard moves off
+        // (only when B is the Circle control (a remapped B keeps its own action); not B in the left stick click's chord,
+        // the recentre; a B already held as Sly steps into the pocket's reach becomes the stance too, unless it is held
+        // for something else (a chord, the T-pose))
+        const bool fBCircle = (pr.abtnCtl[Ctl_B] & BTN_Circle) != 0;
+        if (fSly && pr.nSteal == 0 && s.fPocketAvail && fBCircle && af[Ctl_B] && !s.fStealB && !s.fChord &&
+            (edge(Ctl_B) || (!s.fPocketAvailWas && (!s.afCtlChord[Ctl_B] || s.fStealBLatch))))
+            s.fStealB = s.fStealBLatch = true, s.afCtlChord[Ctl_B] = true;
+        // (and while a pocket is up, no other control's Circle steals the game's instant way)
+        if (fSly && pr.nSteal == 0 && s.fPocketAvail && fBCircle)
+            for (int i = 0; i < Ctl_Max; ++i)
+                if (i != Ctl_B) agrfOff[i] |= BTN_Circle;
+    }
+    s.fPocketAvailWas = fPhys && s.fPocketAvail;
+    if (!af[Ctl_B]) s.fStealBLatch = false;
+    if (!af[Ctl_B] || !fPhys || s.charCur != Char::Sly || pr.nSteal != 0) s.fStealB = false;
+    s.fStealStance = s.fStealB;
+    if (s.fStealStance)
+    {
+        agrfOff[Ctl_TriggerR] |= kgrfAttack;
+        agrfOff[Ctl_X] |= BTN_Triangle;
+        fNoSwing = true;
+    }
+    // (B let go: no attack from it - no swing until the cane has slowed (a flick carried on through the pocket), and a
+    // right trigger or X still held kept from the game until let go)
+    if (fStanceWas && !s.fStealStance)
+    {
+        s.fSwingQuiet = true;
+        for (int i : {int(Ctl_TriggerR), int(Ctl_X)})
+        {
+            if (af[i]) s.afCtlChord[i] = true;
+            s.acstepTap[i] = 0;   // (a tap queued in the stance, with a long-press binding, goes nowhere either)
+        }
+    }
+    if (s.fSwingQuiet)
+    {
+        // (kept while the grip is not tracked: no swing can fire then anyway, and the first slow read clears it)
+        if (s.afVelGrip[1] && glm::length(s.avelGripLocal[1]) < 0.5f * pr.mpsSwing) s.fSwingQuiet = false;
+        else fNoSwing = true;
     }
     uint16_t grfVr = 0;
     auto press = [&](uint32_t btn) { grfVr |= uint16_t(btn & 0xFFFF); };
@@ -1733,7 +1782,7 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         if (af[Ctl_StickClickL])
         {
             if (!s.fChordUsed && pr.abtnHold[Ctl_StickClickL] && t - s.tChordDown >= kDtHold) s.afHoldFired[Ctl_StickClickL] = true;
-            if (s.afHoldFired[Ctl_StickClickL]) press(pr.abtnHold[Ctl_StickClickL]);
+            if (s.afHoldFired[Ctl_StickClickL]) pressCtl(Ctl_StickClickL, pr.abtnHold[Ctl_StickClickL]);
         }
         else
         {
@@ -2017,6 +2066,8 @@ void SetGrabZone(int k, bool f)
 }
 
 void SetPocketNear(bool f) { s.fPocketNear = f; }
+void SetPocketAvailable(bool f) { s.fPocketAvail = f; }
+bool FStealStance() { return s.sess && s.fStealStance && FFirstPersonEyes(); }
 
 void RequestButtons(uint16_t grf, int csteps)
 {

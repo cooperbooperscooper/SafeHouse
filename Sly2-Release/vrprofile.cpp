@@ -31,13 +31,13 @@ constexpr BTNNAME s_abtnname[] = {
 // The layout's version: 2 moved sprint to the left stick click, the pause off the Menu button (Steam Link's) onto a
 // held Y, world stats and gadget 3 onto the stick clicks held. 3 (0.1.2) made the interactions physical: the hands
 // shown, one gadget button (the left trigger, the gadget picked on the wristwatch), the grips grab. An older file's
-// untouched layout keys are moved on.
-constexpr int kLayout = 3;
+// untouched layout keys are moved on. 4 (0.1.3): pickpocketing by holding B and flicking the cane's hook.
+constexpr int kLayout = 4;
 struct OLDKEY { int layout; const char* key; const char* szOld; const char* szNew; };
 constexpr OLDKEY s_aoldkey[] = {
     {2, "stick_click_left", "l3", "sprint_toggle"}, {2, "menu", "start", "none"},
     {3, "grip_left", "l2", "none"}, {3, "stick_click_right_hold", "r2", "none"}, {3, "trackpad_right", "r2", "none"},
-    {3, "show_hands", "0", "1"}};
+    {3, "show_hands", "0", "1"}, {4, "pickpocket", "grab", "hold"}};
 constexpr OLDKEY s_anewkey[] = {   // (keys an older file lacks)
     {2, "y_hold", nullptr, "start"}, {2, "stick_click_left_hold", nullptr, "l3"}, {2, "stick_click_right_hold", nullptr, "none"}};
 
@@ -78,7 +78,8 @@ cane_size = 0.9           ; the cane drawn in your hand x this (its reach in the
 cane_rot = 0,0,0          ; the cane's turn in your grip, degrees x,y,z (also on the VR Settings page)
 cane_offset = 0,0,0       ; the cane's shift in your grip, centimetres x,y,z
 gadget_menu = watch       ; watch: turn your right wrist to you, point with the left hand, pull the left trigger; button: Y
-pickpocket = grab         ; grab: reach for a pocket and grip (B still works); button: B only
+pickpocket = hold         ; hold: at a pocket hold B (the cane can't attack), bring its hook there, flick the cane
+;                           (grab: reach for the pocket and grip, no B needed; button: B only, the game's way)
 climb = grab              ; grab: grip a pole, pipe, hook or ledge with a hand to grab it; button: B only
 glide = lines             ; lines: steer the paraglider with both hands raised and gripping; stick: the left stick
 forearm = 1               ; with show_hands = 1: a bit of forearm with each hand (0: the hand only)
@@ -86,7 +87,7 @@ hands = auto              ; the hand bones: auto, or left,right indices from the
 swing_speed = 2.5         ; how fast (m/s) the right hand must move to count as a swing
 swing = square            ; what a swing presses
 swing_up = triangle       ; what an upward swing presses (Sly's uppercut)
-layout = 3                ; (the button layout's version: an older file is moved on to the new defaults)
+layout = 4                ; (the button layout's version: an older file is moved on to the new defaults)
 a = cross                 ; jump
 b = circle                ; interact / pickpocket
 x = triangle              ; uppercut
@@ -240,12 +241,18 @@ void Apply(const SECTION& sec, const char* szSection, PROFILE* pp)
             fOk = l == "watch" || l == "button";
             if (fOk) pp->nGadgetMenu = l == "watch" ? 0 : 1;
         }
-        else if (key == "pickpocket" || key == "climb" || key == "glide")
+        else if (key == "pickpocket")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "hold" || l == "grab" || l == "button";
+            if (fOk) pp->nSteal = l == "hold" ? 0 : l == "grab" ? 1 : 2;
+        }
+        else if (key == "climb" || key == "glide")
         {
             const std::string l = Lower(val);
             const bool fPhys = key == "glide" ? l == "lines" : l == "grab";
             fOk = fPhys || l == (key == "glide" ? "stick" : "button");
-            if (fOk) (key == "pickpocket" ? pp->fGrabSteal : key == "climb" ? pp->fGrabClimb : pp->fGlideLines) = fPhys;
+            if (fOk) (key == "climb" ? pp->fGrabClimb : pp->fGlideLines) = fPhys;
         }
         else if (key == "hands")
         {

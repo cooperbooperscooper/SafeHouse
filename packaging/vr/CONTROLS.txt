@@ -5,7 +5,7 @@ CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip,
   Left stick        move (where you look)       click: sprint on/off      hold the click: world stats
   Right stick       snap turn                   click: binocucom
   A                 jump
-  B                 interact / steal / grab: the button way of everything below
+  B                 interact / grab: the button way of climbing; at a guard's pocket: HOLD it to steal (below)
   X                 uppercut (or swing the cane upward)
   Y                 hold: pause
   Right trigger     attack with the cane (or just swing it)
@@ -19,8 +19,11 @@ CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip,
 USING YOUR HANDS (first person)
   The cane      Reach behind your right shoulder (a tick in your hand) and grip: the cane goes on your back, and
                 both hands are Sly's bare hands (no attacks). Reach there again and grip to draw it.
-  Pickpocket    Reach for a guard's pocket from behind: your hand ticks when it is in reach; grip, and the loot is
-                yours (a buzz). With the cane drawn, reach it with the cane's hook. B still works. No prize card.
+  Pickpocket    Sneak up behind a guard and HOLD B: while you hold it the cane can't attack. Bring the cane's
+                hook to the pocket (your right hand ticks, then beats softly while it is in reach) and flick
+                the cane: the loot is yours (a buzz). No prize card. Cane on your back: hold B, put your hand
+                at the pocket, and flick it or grip. (VR Settings > Pickpocket: Grab = just grip at a pocket,
+                no B; Button = the game's own B press.)
   Gadgets       Turn the inside of your right wrist toward your eyes: the wristwatch shows your gadgets. Point at
                 one with your left hand and pull the left trigger. From then on the left trigger uses it.
   Climbing      Grip a pole, pipe, hook or ledge (where the blue sparkles are) with either hand. On a pole, pull
@@ -32,7 +35,7 @@ USING YOUR HANDS (first person)
 
 VR SETTINGS (in the game: Options > VR Settings, from the pause menu or the title)
   Recalibrate (T-pose), Sly Size, Cane Size, Cane Turn X/Y/Z, Cane Shift X/Y/Z, Hands on/off, Gadget Menu
-  (wristwatch or the Y button), Pickpocket (grab or button), Climbing (grab or button), Glider (hand lines or
+  (wristwatch or the Y button), Pickpocket (hold B, grab or button), Climbing (grab or button), Glider (hand lines or
   stick), Reset. Move the left stick left / right to change a value: it applies at once and is saved.
 
 HELPERS (hold the LEFT stick click, then quickly press)

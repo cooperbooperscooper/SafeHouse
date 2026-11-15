@@ -465,7 +465,7 @@ std::string StrNative(int id)
     }
     case NID_VrShowHands: return StrVr("Hands", pr.fShowHands ? "On" : "Off");
     case NID_VrGadgetMenu: return StrVr("Gadget Menu", pr.nGadgetMenu == 0 ? "Wristwatch" : "Button");
-    case NID_VrPickpocket: return StrVr("Pickpocket", pr.fGrabSteal ? "Grab" : "Button");
+    case NID_VrPickpocket: return StrVr("Pickpocket", pr.nSteal == 0 ? "Hold B" : pr.nSteal == 1 ? "Grab" : "Button");
     case NID_VrClimb: return StrVr("Climbing", pr.fGrabClimb ? "Grab" : "Button");
     case NID_VrGlide: return StrVr("Glider", pr.fGlideLines ? "Hand Lines" : "Stick");
     case NID_VrReset: return StrToGameText("Reset VR Settings");
@@ -749,7 +749,12 @@ int StepVr(const MENUENT& e, int n, bool fWrap)
         break;
     case NID_VrShowHands: f = vrprofile::FSave(SzSecVr("show_hands"), "show_hands", pr.fShowHands ? "0" : "1"); break;
     case NID_VrGadgetMenu: f = vrprofile::FSave(SzSecVr("gadget_menu"), "gadget_menu", pr.nGadgetMenu == 0 ? "button" : "watch"); break;
-    case NID_VrPickpocket: f = vrprofile::FSave(SzSecVr("pickpocket"), "pickpocket", pr.fGrabSteal ? "button" : "grab"); break;
+    case NID_VrPickpocket:   // (three ways: hold B, grab, button; round in either direction)
+    {
+        static const char* const asz[] = {"hold", "grab", "button"};
+        f = vrprofile::FSave(SzSecVr("pickpocket"), "pickpocket", asz[(std::clamp(pr.nSteal, 0, 2) + (n < 0 ? 2 : 1)) % 3]);
+        break;
+    }
     case NID_VrClimb: f = vrprofile::FSave(SzSecVr("climb"), "climb", pr.fGrabClimb ? "button" : "grab"); break;
     case NID_VrGlide: f = vrprofile::FSave(SzSecVr("glide"), "glide", pr.fGlideLines ? "stick" : "lines"); break;
     default: return 0;
@@ -776,7 +781,7 @@ bool FResetVr()
     };
     return save("sly_size", achSly) && save("cane_size", achCane) && save("cane_rot", achRot) && save("cane_offset", achOff) &&
            save("show_hands", d.fShowHands ? "1" : "0") && save("gadget_menu", d.nGadgetMenu == 0 ? "watch" : "button") &&
-           save("pickpocket", d.fGrabSteal ? "grab" : "button") && save("climb", d.fGrabClimb ? "grab" : "button") &&
+           save("pickpocket", d.nSteal == 0 ? "hold" : d.nSteal == 1 ? "grab" : "button") && save("climb", d.fGrabClimb ? "grab" : "button") &&
            save("glide", d.fGlideLines ? "lines" : "stick");
 }
 
