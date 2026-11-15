@@ -167,6 +167,10 @@ struct STATE
     bool fSnapWas = false;
     int cstepSwingCool = 0, cstepSwingHold = 0;
     uint16_t btnSwingHeld = 0;
+    // (0.1.3) a swing is decided a few steps after it starts, on its strongest upward push: an uppercut begins as
+    // a sweep and only then goes up, so the first step's direction missed it
+    int cstepSwingDecide = 0;
+    float vyPeak = 0.0f, speedPeak = 0.0f;
     // the head as last drawn (FHeadView): the eyes' world matrices this frame, then the combined view
     glm::mat4 amatEyeWorld[2]{};
     bool afEyeWorld[2]{};
@@ -844,7 +848,7 @@ constexpr uint16_t kgrfAttack = BTN_Square | BTN_Triangle;
 constexpr float kmGlideBelowHead = 0.45f;   // (the paraglider's lines: both hands above your head less this)
 
 // You as a bigger or smaller Sly (sly_size): the world's scale and your eye height follow.
-float SlySize() { return std::clamp(Prof().slySize, 0.5f, 2.0f); }
+float SlySize() { return std::clamp(Prof().slySize, 0.05f, 50.0f); }   // (0.1.4: any size, no 0.5..2 cap)
 
 glm::vec3 PosHeadLocal() { return 0.5f * (Vec(s.aview[0].pose.position) + Vec(s.aview[1].pose.position)); }
 // The head's yaw in LOCAL (radians, + to the left; not recentred, unlike RadHeadYaw)
@@ -1845,6 +1849,7 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     {
         // (a menu has the pad: a hand's flick must not answer it; a swing in progress is dropped)
         s.cstepSwingHold = 0;
+        s.cstepSwingDecide = 0;
         return;
     }
     if (s.cstepSwingHold > 0)
@@ -1858,16 +1863,29 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         {
             const glm::vec3 v = s.avelGripLocal[1];
             const float speed = glm::length(v);
-            if (speed > pr.mpsSwing)
+            if (s.cstepSwingDecide == 0 && speed > pr.mpsSwing)
             {
-                const bool fUp = v.y > 0.7f * speed;   // (LOCAL space: Y up)
-                const uint16_t btn = fUp && pr.btnSwingUp ? pr.btnSwingUp : pr.btnSwing;
-                if (btn)
+                s.cstepSwingDecide = 5;   // (a swing begun: watch it for 5 steps, about 80 ms)
+                s.vyPeak = 0.0f;
+                s.speedPeak = 0.0f;
+            }
+            if (s.cstepSwingDecide > 0)
+            {
+                s.vyPeak = std::max(s.vyPeak, v.y);   // (LOCAL space: Y up)
+                s.speedPeak = std::max(s.speedPeak, speed);
+                if (--s.cstepSwingDecide == 0)
                 {
-                    s.cstepSwingHold = 3;    // (3 steps, 1/20 s: long enough for the game to see the press)
-                    s.cstepSwingCool = 21;   // (about a third of a second before the next swing counts)
-                    s.btnSwingHeld = btn;
-                    *pgrf |= btn;
+                    // (an upward swing: its strongest upward push is at least 0.45 of its strongest speed and above
+                    // the swing speed's half; a sideways or forward swing keeps well below it)
+                    const bool fUp = s.vyPeak > 0.55f * s.speedPeak && s.vyPeak > 0.5f * pr.mpsSwing;
+                    const uint16_t btn = fUp && pr.btnSwingUp ? pr.btnSwingUp : pr.btnSwing;
+                    if (btn)
+                    {
+                        s.cstepSwingHold = 3;    // (3 steps, 1/20 s: long enough for the game to see the press)
+                        s.cstepSwingCool = 21;   // (about a third of a second before the next swing counts)
+                        s.btnSwingHeld = btn;
+                        *pgrf |= btn;
+                    }
                 }
                 s.tRightActive = t;
             }
@@ -1920,7 +1938,17 @@ bool FHandWorld(int k, const CAMERA& cam, glm::mat4* pmat)
     r[1] = glm::vec4(glm::normalize(glm::vec3(m[1])), 0.0f);
     r[2] = glm::vec4(glm::normalize(glm::vec3(m[2])), 0.0f);
     r[3] = m[3];
-    *pmat = r * MatHandCal(k);
+    // (0.1.3) the player's own tuning of the bare hands (hand_turn / hand_offset, VR Settings), in the grip's axes; the
+    // left hand's mirror image across the grip's X, as the calibration's
+    const vrprofile::PROFILE& pr = Prof();
+    glm::vec3 deg = pr.degHand, cm = pr.cmHand;
+    if (k == 0)
+    {
+        deg = glm::vec3(deg.x, -deg.y, -deg.z);
+        cm.x = -cm.x;
+    }
+    const glm::mat4 matTune = glm::translate(glm::mat4(1.0f), cm * (s.scale / 100.0f)) * glm::mat4_cast(glm::quat(glm::radians(deg)));
+    *pmat = r * matTune * MatHandCal(k);
     return true;
 }
 

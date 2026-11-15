@@ -50,8 +50,14 @@ struct PROFILE
     uint16_t btnSwing = 0, btnSwingUp = 0;   // what a swing / an upward swing presses (0: nothing)
     bool fCalibrated = false;     // (0.1.0's guided calibration; no longer used)
     // (0.1.2, first person) size, the cane in your grip, and the physical interactions (the VR Settings page)
-    float slySize = 1.1f;         // you as a bigger (> 1) or smaller Sly: the world's scale and your eye height follow
+    float slySize = 1.6f;         // you as a bigger (> 1) or smaller Sly: the world's scale and your eye height follow
     float caneSize = 0.9f;        // the cane drawn in your hand x this (its game reach unchanged)
+    // (0.1.3) the bare hands' own tuning, both hands, in the grip's axes (the left mirrored): size (about the wrist), a
+    // turn (degrees) and a shift (centimetres) on top of the hand calibration
+    float handSize = 0.8f;
+    bool fCaneOnHand = true;      // cane_fit: the cane rides the tuned hand (true), or the raw grip (false, 0.1.2's fit)
+    glm::vec3 degHand{0.0f};
+    glm::vec3 cmHand{0.0f};
     glm::vec3 degCane{0.0f};      // the cane's turn in your grip, degrees about the grip's x (palm), y (back), z (fist)
     glm::vec3 cmCane{0.0f};       // its shift in your grip, centimetres along the same axes
     int nGadgetMenu = 0;          // 0: the wristwatch (turn your right wrist to you, point, left trigger); 1: Y (Select)

@@ -83,8 +83,10 @@ enum NATIVEID : int
     NID_VrRecalibrate = NID_Base + 0x5000,   // (PC, VR first person: vr.h RequestTPose)
     // (0.1.2, VR first person) VR Settings...: its entry on the options page, then its rows in order (one id each:
     // StrNative sees only the id), their values vr::ProfileCur()'s
-    NID_VrPage, NID_VrSlySize, NID_VrCaneSize, NID_VrCaneRotX, NID_VrCaneRotY, NID_VrCaneRotZ, NID_VrCaneOffX,
-    NID_VrCaneOffY, NID_VrCaneOffZ, NID_VrShowHands, NID_VrGadgetMenu, NID_VrPickpocket, NID_VrClimb, NID_VrGlide,
+    // (0.1.3: the hand rows, after Sly Size)
+    NID_VrPage, NID_VrSlySize, NID_VrHandSize, NID_VrHandRotX, NID_VrHandRotY, NID_VrHandRotZ, NID_VrHandOffX, NID_VrHandOffY,
+    NID_VrHandOffZ, NID_VrCaneSize, NID_VrCaneRotX, NID_VrCaneRotY, NID_VrCaneRotZ, NID_VrCaneOffX,
+    NID_VrCaneOffY, NID_VrCaneOffZ, NID_VrShowHands, NID_VrCaneFit, NID_VrGadgetMenu, NID_VrPickpocket, NID_VrClimb, NID_VrGlide,
     NID_VrReset,
 };
 constexpr uint32_t PFN_NativeDisplay = 0xFFFF0001;   // (a native select function)
@@ -448,6 +450,23 @@ std::string StrNative(int id)
     case NID_VrCaneSize:
         std::snprintf(ach, sizeof(ach), "%d%%", int(std::lround((id == NID_VrSlySize ? pr.slySize : pr.caneSize) * 100.0f)));
         return StrVr(id == NID_VrSlySize ? "Sly Size" : "Cane Size", ach);
+    case NID_VrHandSize:
+        std::snprintf(ach, sizeof(ach), "%d%%", int(std::lround(pr.handSize * 100.0f)));
+        return StrVr("Hand Size", ach);
+    case NID_VrHandRotX: case NID_VrHandRotY: case NID_VrHandRotZ:
+    {
+        static const char* const asz[] = {"Hand Turn X", "Hand Turn Y", "Hand Turn Z"};
+        const int k = id - NID_VrHandRotX;
+        std::snprintf(ach, sizeof(ach), "%d%s", int(std::lround(pr.degHand[k])), FWideText() ? " deg" : "\xC2\xB0");
+        return StrVr(asz[k], ach);
+    }
+    case NID_VrHandOffX: case NID_VrHandOffY: case NID_VrHandOffZ:
+    {
+        static const char* const asz[] = {"Hand Shift X", "Hand Shift Y", "Hand Shift Z"};
+        const int k = id - NID_VrHandOffX;
+        std::snprintf(ach, sizeof(ach), "%d cm", int(std::lround(pr.cmHand[k])));
+        return StrVr(asz[k], ach);
+    }
     case NID_VrCaneRotX: case NID_VrCaneRotY: case NID_VrCaneRotZ:
     {
         // (the disc font's degree sign: Latin-1 0xB0 through StrToGameText; the wide text's font may lack it)
@@ -464,6 +483,7 @@ std::string StrNative(int id)
         return StrVr(asz[k], ach);
     }
     case NID_VrShowHands: return StrVr("Hands", pr.fShowHands ? "On" : "Off");
+    case NID_VrCaneFit: return StrVr("Cane Fit", pr.fCaneOnHand ? "On Hand" : "On Grip");
     case NID_VrGadgetMenu: return StrVr("Gadget Menu", pr.nGadgetMenu == 0 ? "Wristwatch" : "Button");
     case NID_VrPickpocket: return StrVr("Pickpocket", pr.fGrabSteal ? "Grab" : "Button");
     case NID_VrClimb: return StrVr("Climbing", pr.fGrabClimb ? "Grab" : "Button");
@@ -727,8 +747,14 @@ int StepVr(const MENUENT& e, int n, bool fWrap)
 {
     const vrprofile::PROFILE& pr = vr::ProfileCur();
     char ach[96];
-    auto size = [&](const char* szKey, float g, int iMin, int iMax) {   // (0.05 steps)
-        std::snprintf(ach, sizeof(ach), "%.2f", double(GStepVr(g, 0.05f, iMin, iMax, n, fWrap)));
+    // (0.1.4: no top cap: 0.05 steps up to 2, 0.25 to 5, then 1, from 0.1 up to 50; Cross past 50 goes round to 0.1)
+    auto size = [&](const char* szKey, float g, int, int) {
+        auto dgOf = [&](float x, int dir) { return dir > 0 ? (x < 2.0f - 1e-4f ? 0.05f : x < 5.0f - 1e-4f ? 0.25f : 1.0f)
+                                                           : (x <= 2.0f + 1e-4f ? 0.05f : x <= 5.0f + 1e-4f ? 0.25f : 1.0f); };
+        float v = g + float(n) * dgOf(g, n);
+        if (v > 50.0f) v = fWrap ? 0.1f : 50.0f;
+        v = std::max(v, 0.1f);
+        std::snprintf(ach, sizeof(ach), "%.2f", double(v));
         return vrprofile::FSave(SzSecVr(szKey), szKey, ach);
     };
     auto vec = [&](const char* szKey, glm::vec3 v, int k, float dg, int iMin, int iMax, bool fRound) {   // ("x,y,z")
@@ -739,15 +765,23 @@ int StepVr(const MENUENT& e, int n, bool fWrap)
     bool f = false;
     switch (e.id)
     {
-    case NID_VrSlySize: f = size("sly_size", pr.slySize, 14, 32); break;      // (0.70..1.60)
+    case NID_VrSlySize: f = size("sly_size", pr.slySize, 14, 40); break;      // (0.70..2.00)
+    case NID_VrHandSize: f = size("hand_size", pr.handSize, 4, 24); break;    // (0.20..1.20)
+    case NID_VrHandRotX: case NID_VrHandRotY: case NID_VrHandRotZ:            // (-90..90 degrees by 5, round)
+        f = vec("hand_turn", pr.degHand, e.id - NID_VrHandRotX, 5.0f, -36, 36, true);
+        break;
+    case NID_VrHandOffX: case NID_VrHandOffY: case NID_VrHandOffZ:            // (-10..10 cm by 1)
+        f = vec("hand_offset", pr.cmHand, e.id - NID_VrHandOffX, 1.0f, -100, 100, fWrap);
+        break;
     case NID_VrCaneSize: f = size("cane_size", pr.caneSize, 10, 26); break;   // (0.50..1.30)
     case NID_VrCaneRotX: case NID_VrCaneRotY: case NID_VrCaneRotZ:            // (-90..90 degrees by 5, round)
-        f = vec("cane_rot", pr.degCane, e.id - NID_VrCaneRotX, 5.0f, -18, 18, true);
+        f = vec("cane_rot", pr.degCane, e.id - NID_VrCaneRotX, 5.0f, -36, 36, true);
         break;
     case NID_VrCaneOffX: case NID_VrCaneOffY: case NID_VrCaneOffZ:            // (-10..10 cm by 1)
-        f = vec("cane_offset", pr.cmCane, e.id - NID_VrCaneOffX, 1.0f, -10, 10, fWrap);
+        f = vec("cane_offset", pr.cmCane, e.id - NID_VrCaneOffX, 1.0f, -100, 100, fWrap);
         break;
     case NID_VrShowHands: f = vrprofile::FSave(SzSecVr("show_hands"), "show_hands", pr.fShowHands ? "0" : "1"); break;
+    case NID_VrCaneFit: f = vrprofile::FSave(SzSecVr("cane_fit"), "cane_fit", pr.fCaneOnHand ? "grip" : "hand"); break;
     case NID_VrGadgetMenu: f = vrprofile::FSave(SzSecVr("gadget_menu"), "gadget_menu", pr.nGadgetMenu == 0 ? "button" : "watch"); break;
     case NID_VrPickpocket: f = vrprofile::FSave(SzSecVr("pickpocket"), "pickpocket", pr.fGrabSteal ? "button" : "grab"); break;
     case NID_VrClimb: f = vrprofile::FSave(SzSecVr("climb"), "climb", pr.fGrabClimb ? "button" : "grab"); break;
@@ -774,8 +808,13 @@ bool FResetVr()
             if (f && vrprofile::FHasKey(vrprofile::SzChar(c), szKey)) f = vrprofile::FSave(vrprofile::SzChar(c), szKey, szVal);
         return f;
     };
-    return save("sly_size", achSly) && save("cane_size", achCane) && save("cane_rot", achRot) && save("cane_offset", achOff) &&
-           save("show_hands", d.fShowHands ? "1" : "0") && save("gadget_menu", d.nGadgetMenu == 0 ? "watch" : "button") &&
+    char achHand[32], achHandRot[96], achHandOff[96];
+    std::snprintf(achHand, sizeof(achHand), "%.2f", double(d.handSize));
+    std::snprintf(achHandRot, sizeof(achHandRot), "%g,%g,%g", double(d.degHand.x), double(d.degHand.y), double(d.degHand.z));
+    std::snprintf(achHandOff, sizeof(achHandOff), "%g,%g,%g", double(d.cmHand.x), double(d.cmHand.y), double(d.cmHand.z));
+    return save("sly_size", achSly) && save("hand_size", achHand) && save("hand_turn", achHandRot) &&
+           save("hand_offset", achHandOff) && save("cane_size", achCane) && save("cane_rot", achRot) && save("cane_offset", achOff) &&
+           save("show_hands", d.fShowHands ? "1" : "0") && save("cane_fit", d.fCaneOnHand ? "hand" : "grip") && save("gadget_menu", d.nGadgetMenu == 0 ? "watch" : "button") &&
            save("pickpocket", d.fGrabSteal ? "grab" : "button") && save("climb", d.fGrabClimb ? "grab" : "button") &&
            save("glide", d.fGlideLines ? "lines" : "stick");
 }
@@ -950,6 +989,15 @@ std::vector<MENUENT> AentPause()
         default: break;
         }
         if (f) a.push_back(e);
+    }
+    // (0.1.3, VR first person) VR Settings... straight in the pause menu: the hands and the cane are drawn live behind the
+    // page, so they can be tuned in the level
+    if (vr::FFirstPerson())
+    {
+        MENUENT vrp;
+        vrp.id = NID_VrPage;
+        vrp.pfnSelect = PFN_NativeVrPage;
+        a.push_back(vrp);
     }
     // (native) Exit to Desktop, as Sly1-Release's pause menu
     MENUENT ex;
