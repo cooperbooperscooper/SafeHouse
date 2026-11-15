@@ -62,6 +62,7 @@ void UpdateMurrayBerserkTransitions(MURRAY* p);  // (below, 0x1B8EC0)
 #include "pccharacter.h"
 #include "pcguard.h"
 #include "vraim.h"
+#include "vr.h"
 void LaunchFrom(LO* plaunch, LO* po);                                  // launcher.cpp (0x1D6B00)
 void SetLauncherAim(LO* plaunch, LO* ptarget, const glm::vec3& offset);  // launcher.cpp
 #include "bsp.h"
@@ -603,7 +604,9 @@ void UpdateBentleyState2(BENTLEY* p)
     {
         if (s == -1)
         {
-            if (static_cast<unsigned>(p->nF04) < 3 && p->nF20 != 2)
+            // (PC, VR first person: the left trigger held readies the darts with no binocucom (vr::FAimHeld), the right one
+            // fires them (the dart action, R1))
+            if ((static_cast<unsigned>(p->nF04) < 3 || (vr::FAimHeld() && !FPcCarm(p->palo))) && p->nF20 != 2)
                 SetBentleyState2(p, 2.0f < g_clock.t - p->t1700 ? 0 : 1);
             switch (p->state)
             {
@@ -619,7 +622,7 @@ void UpdateBentleyState2(BENTLEY* p)
         }
         else if (s >= 0 && s < 2)
         {
-            if (!(static_cast<unsigned>(p->nF04) < 3)) SetBentleyState2(p, -1);
+            if (!(static_cast<unsigned>(p->nF04) < 3 || (vr::FAimHeld() && !FPcCarm(p->palo)))) SetBentleyState2(p, -1);
             else if (p->n16BC == 1)
             {
                 if (2.0f < g_clock.t - p->t1700) SetBentleyState2(p, 0);

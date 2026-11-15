@@ -208,8 +208,13 @@ PROFILE ProfileBuiltIn(Char c)
         p.abtnCtl[Ctl_TriggerR] = BTN_R1;
         p.abtnCtl[Ctl_GripR] = BTN_Square;
         p.btnSwingUp = 0;
+        p.handCharScale = 0.8f;
     }
-    else if (c == Char::Murray) p.sEye = 45.0f;
+    else if (c == Char::Murray)
+    {
+        p.sEye = 45.0f;
+        p.handCharScale = 0.7f;
+    }
     return p;
 }
 
@@ -235,6 +240,7 @@ void Apply(const SECTION& sec, const char* szSection, PROFILE* pp)
         else if (key == "calibrated") fOk = FBool(val, &pp->fCalibrated);
         else if (key == "show_hands") fOk = FBool(val, &pp->fShowHands);
         else if (key == "hand_size") fOk = FFloat(val, &g) && g >= 0.05f && g <= 50.0f && (pp->handSize = g, true);
+        else if (key == "hand_scale") fOk = FFloat(val, &g) && g >= 0.05f && g <= 20.0f && (pp->handCharScale = g, true);
         else if (key == "cane_fit")
         {
             const std::string l = Lower(val);

@@ -187,6 +187,7 @@ struct STATE
     float yawTorso = 0.0f;
     double tTorso = 0.0;
     bool afGripHeld[2]{};
+    bool fAimHeld = false;   // (Bentley, first person: the left trigger held: the darts ready with no binocucom)
     bool afGripPending[2]{};      // (a new press for FTakeGripPress, for a few steps)
     int acstepGripPending[2]{};
     bool afGripGrab[2]{};         // (this hold is a grab: its button kept from the game until let go)
@@ -1689,8 +1690,16 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     // attack; a grab held with either hand: no swing (other characters' triggers are theirs: Bentley's darts)
     uint16_t agrfOff[Ctl_Max]{};
     bool fNoSwing = false;
+    s.fAimHeld = false;
     if (fPhys)
     {
+        // (0.1.6) Bentley: the left trigger aims the darts (ready with no binocucom: gang.cpp), the right trigger fires; it
+        // presses no button of its own for him
+        if (s.charCur == Char::Bentley)
+        {
+            s.fAimHeld = af[Ctl_TriggerL];
+            agrfOff[Ctl_TriggerL] |= 0xFFFF;
+        }
         const bool fSly = s.charCur == Char::Sly;
         const bool fBusy = s.fPocketNear || s.afGrabZone[1] || s.fWatchOpen;
         if (fSly && !s.fCaneDrawn)
@@ -2025,6 +2034,7 @@ bool FHolsterWorld(const CAMERA& cam, glm::mat4* pmat)
 
 float UnitsPerMetre() { return s.scale; }
 
+bool FAimHeld() { return s.sess && s.fActions && s.fAimHeld && FFirstPersonEyes(); }
 bool FGripHeld(int k) { return k >= 0 && k <= 1 && s.sess && s.fActions && s.afGripHeld[k]; }
 
 bool FTakeGripPress(int k)

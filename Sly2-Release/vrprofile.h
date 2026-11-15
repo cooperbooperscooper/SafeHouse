@@ -55,6 +55,9 @@ struct PROFILE
     // (0.1.3) the bare hands' own tuning, both hands, in the grip's axes (the left mirrored): size (about the wrist), a
     // turn (degrees) and a shift (centimetres) on top of the hand calibration
     float handSize = 0.8f;
+    // (0.1.6) the character's own hands relative to Sly's (the player's tuned size is Sly's; Bentley's and Murray's gloves
+    // are larger next to him): hand_scale in a section, times hand_size
+    float handCharScale = 1.0f;
     bool fCaneOnHand = true;      // cane_fit: the cane rides the tuned hand (true), or the raw grip (false, 0.1.2's fit)
     glm::vec3 degHand{0.0f};
     glm::vec3 cmHand{0.0f};

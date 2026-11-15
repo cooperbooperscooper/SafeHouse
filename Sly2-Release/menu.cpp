@@ -735,6 +735,8 @@ float GStepVr(float g, float dg, int iMin, int iMax, int n, bool fWrap)
 const char* SzSecVr(const char* szKey)
 {
     const char* szChar = vrprofile::SzChar(vr::CharacterCur());
+    // (0.1.6: Hand Size is each character's own: tuning Bentley's or Murray's never moves Sly's)
+    if (std::string(szKey) == "hand_size") return szChar;
     return vr::CharacterCur() != vrprofile::Char::Default && vrprofile::FHasKey(szChar, szKey) ? szChar : "default";
 }
 

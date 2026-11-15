@@ -469,7 +469,9 @@ void ApplyVrHands(SCENE& scene, const std::vector<ALO*>& apalo, ALO* paloPlayer,
         glm::mat4 matCtrl(1.0f);
         if (!pxf || !mpmatWorld.count(pxf) || !vr::FHandWorld(s, camEye, &matCtrl)) continue;
         // (0.1.3: hand_size: the glove drawn smaller or larger about its own origin, the wrist)
-        amatMove[s] = matCtrl * glm::scale(glm::mat4(1.0f), glm::vec3(vr::ProfileCur().handSize)) * glm::inverse(mpmatWorld[pxf]);
+        // (0.1.6: x the character's own hand scale: Bentley's and Murray's gloves next to Sly's, the tuned size)
+        const float sHand = vr::ProfileCur().handSize * vr::ProfileCur().handCharScale;
+        amatMove[s] = matCtrl * glm::scale(glm::mat4(1.0f), glm::vec3(sHand)) * glm::inverse(mpmatWorld[pxf]);
         aposHand[s] = glm::vec3(mpmatWorld[pxf][3]);
         afHand[s] = true;
         amatCtrl[s] = matCtrl;
@@ -517,7 +519,7 @@ void ApplyVrHands(SCENE& scene, const std::vector<ALO*>& apalo, ALO* paloPlayer,
             if (fDrawn)
             {
                 // (the right hand closes on the cane as the animation holds it; no size: the glove keeps its own)
-                if (afHand[1]) amatMove[1] = matCaneNoSize * glm::scale(glm::mat4(1.0f), glm::vec3(pr.handSize)) * glm::inverse(matRef);
+                if (afHand[1]) amatMove[1] = matCaneNoSize * glm::scale(glm::mat4(1.0f), glm::vec3(pr.handSize * pr.handCharScale)) * glm::inverse(matRef);
                 s_posCaneHook = glm::vec3(matCane * glm::vec4(s_cane.posHook, 1.0f));
                 s_fCaneHook = true;
                 // (0.1.4, cane_fit = hand: the cane and the glove ride the same tuned hand matrix as the bare hands (the
@@ -529,7 +531,7 @@ void ApplyVrHands(SCENE& scene, const std::vector<ALO*>& apalo, ALO* paloPlayer,
                     const glm::mat4 matHandMove = amatCtrl[1] * matAdj;
                     const glm::mat4 matInvHand = glm::inverse(mpmatWorld[pxfR]);
                     matMove = matHandMove * glm::scale(glm::mat4(1.0f), glm::vec3(pr.caneSize)) * matInvHand;
-                    amatMove[1] = matHandMove * glm::scale(glm::mat4(1.0f), glm::vec3(pr.handSize)) * matInvHand;
+                    amatMove[1] = matHandMove * glm::scale(glm::mat4(1.0f), glm::vec3(pr.handSize * pr.handCharScale)) * matInvHand;
                 }
             }
         }
