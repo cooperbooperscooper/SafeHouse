@@ -1,8 +1,9 @@
 # Building and changing Sly 2 VR on Windows
 
-For a Claude session (or a person) on the player's Windows PC who wants to change the VR mod's code. To tune
-settings without code, see `Sly2-VR-0.1.2-TUNING.md` instead. Read [VR-PROTOTYPE.md](VR-PROTOTYPE.md) for how the mod
-works.
+For a Claude session (or a person) on the player's Windows PC who wants to change the VR mod's code. Start with
+[handoff/Sly2-VR-HANDOFF.md](handoff/Sly2-VR-HANDOFF.md) (the install, logs, ground rules). To tune settings without
+code, see [handoff/Sly2-VR-0.1.2-TUNING.md](handoff/Sly2-VR-0.1.2-TUNING.md). Read [VR-PROTOTYPE.md](VR-PROTOTYPE.md)
+for how the mod works.
 
 ## What this source is
 
@@ -133,21 +134,59 @@ All of it is in `Sly2-Release/`.
   Then run `.\initest.exe test.ini`. For the migration test, copy `tools\vrtests\v011.ini` to `run.ini` and run
   `.\migtest.exe run.ini 011`; do the same for `010`. Each prints `all passed`.
 
-## Getting updates and sending changes back
+## Working with the Mac session: pull requests
 
-- **Get the Mac session's latest:** `git switch main` and `git pull`. Each release is a commit on `main`.
-- **Make a change on its own branch:**
+You and the Mac session can't message each other. The repo's **pull requests and issues** are where you talk: whatever
+one side writes there, the other reads when the player points it there. Both sessions use the player's one GitHub
+account (`cooperbooperscooper`), so **start every PR, comment and issue with [PC]**. The Mac session signs **[Mac]**.
 
-  ```powershell
-  git switch main; git pull
-  git switch -c pc/cane-angle        # (pc/<what it fixes>)
-  # ... edit, build, test on the headset ...
-  git add -A
-  git commit -m "Cane: 15 degrees more roll by default (the player's test: the hook pointed left)"
-  git push -u origin pc/cane-angle
-  ```
+**Get the latest release:** `git switch main` and `git pull`. Each release is a commit on `main`.
 
-- **Tell the player** the branch name, what it fixes and how it was tested (which build, on the headset or not). The
-  player passes that to the Mac session, which reviews and merges it into `main`, so the next update includes it.
-- **Never force-push `main`.**
-- **No repo access:** `git diff > my-change.patch` in the source folder and send the patch instead.
+**A fix:**
+1. Start a branch from the latest `main`:
+
+   ```powershell
+   git switch main; git pull
+   git switch -c pc/cane-angle        # pc/<what it fixes>
+   # ... edit, build, test (an update zip, version 0.1.2.x) ...
+   git add -A
+   git commit -m "Cane: 15 degrees more roll by default (the player's test: the hook pointed left)"
+   git push -u origin pc/cane-angle
+   ```
+
+2. Open a pull request into `main`. Its body follows `.github/pull_request_template.md`: what the player saw, what
+   changed, how it was tested, logs, and questions. Write it to a file and pass it in:
+
+   ```powershell
+   gh pr create --base main --head pc/cane-angle --title "[PC] Cane: more roll by default" --body-file pr.md
+   ```
+
+3. Give the player the PR's link (or number, e.g. #3) to pass to the Mac session.
+
+**Reviews:**
+- The Mac session reviews and replies with comments on the PR, signed [Mac]. GitHub won't let an account approve its
+  own pull request, so these are plain comments.
+- Read them, including line comments:
+  - `gh pr view 3 --comments`
+  - `gh api repos/cooperbooperscooper/sly2-vr/pulls/3/comments`
+- Answer on the PR with `gh pr comment 3 --body "[PC] ..."`. Address the comments with more commits on the same branch,
+  then push.
+
+**Merging:**
+- **The Mac session merges** and makes the next update zip. Don't merge your own PR, and never push to or force-push
+  `main`.
+- After a merge: `git switch main; git pull; git branch -d pc/cane-angle`.
+
+**Anything not about one fix** (a question, a report with logs, a request):
+- Open an issue with the label `for-mac`:
+  `gh issue create --title "[PC] ..." --body-file report.md --label for-mac`
+- The Mac session's messages for you come as issues labelled `for-pc`. List them with `gh issue list --label for-pc`,
+  reply with `gh issue comment <n> --body "[PC] ..."`, and close one with `gh issue close <n>` once it's done.
+
+**Each time the player says "check GitHub":**
+- `gh pr list`
+- `gh issue list --label for-pc`
+- `gh pr view <n> --comments` on your open PRs
+
+**No repo access:** run `git diff > my-change.patch` in the source folder and send the patch, with the same details,
+through the player.
