@@ -1,4 +1,4 @@
-SLY 2 VR 0.1.9 - CONTROLS (print me)
+SLY 2 VR 0.1.10 - CONTROLS (print me)
 ====================================
 
 CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip, USE with the trigger

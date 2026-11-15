@@ -535,6 +535,20 @@ float RadHeadYaw()
     return std::atan2(-fwd.x, -fwd.z);
 }
 
+// The player's own tuning of hand k (hand_turn / hand_offset, VR Settings), in the grip's axes: the shift (scaled to
+// the world's units) then the turn; the left hand's the mirror image across the grip's X, as the calibration's
+glm::mat4 MatHandTune(int k)
+{
+    const vrprofile::PROFILE& pr = Prof();
+    glm::vec3 deg = pr.degHand, cm = pr.cmHand;
+    if (k == 0)
+    {
+        deg = glm::vec3(deg.x, -deg.y, -deg.z);
+        cm.x = -cm.x;
+    }
+    return glm::translate(glm::mat4(1.0f), cm * (s.scale / 100.0f)) * glm::mat4_cast(glm::quat(glm::radians(deg)));
+}
+
 // The hand calibration's turn of hand k on its grip (vrprofile.h hand_rot / hand_rot_left; the left's default is the
 // right's mirror image across the grip's X, where the hands mirror)
 glm::mat4 MatHandCal(int k)
@@ -658,8 +672,9 @@ int CaptureHands()
     for (int k = 0; k < 2; ++k)
     {
         if (!s.afHandAnim[k] || !s.afGrip[k] || !s.fCamLast) continue;
-        // the grip's turn in the world (without the old calibration) onto the hand's: grip x cal = hand
-        const glm::mat3 matGrip = MatTurnOf(s.matCamLast * MatTrackedLocal(s.aposeGrip[k]));
+        // the grip's turn in the world with the player's hand turn (as FHandWorld draws it, without the old calibration)
+        // onto the hand's: grip x tune x cal = hand (0.1.10: the tune was left out, so a hand_turn showed twice)
+        const glm::mat3 matGrip = MatTurnOf(s.matCamLast * MatTrackedLocal(s.aposeGrip[k])) * MatTurnOf(MatHandTune(k));
         const glm::mat3 matCal = glm::transpose(matGrip) * MatTurnOf(s.amatHandAnim[k]);
         const glm::vec3 deg = glm::degrees(glm::eulerAngles(glm::quat_cast(matCal)));
         char ach[64];
@@ -1706,7 +1721,8 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         // presses no button of its own for him
         if (s.charCur == Char::Bentley)
         {
-            s.fAimHeld = af[Ctl_TriggerL];
+            // (0.1.10: not a press that picked on the watch, nor one held over from a chord: kept until let go)
+            s.fAimHeld = af[Ctl_TriggerL] && !s.afCtlChord[Ctl_TriggerL];
             agrfOff[Ctl_TriggerL] |= 0xFFFF;
         }
         const bool fSly = s.charCur == Char::Sly;
@@ -1927,7 +1943,8 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     }
     // (swings off - the steal stance, a grab, the watch, the holstered cane: a swing still being decided is dropped, so
     // it can't fire when they end)
-    if (fNoSwing) s.cstepSwingDecide = 0;
+    // (0.1.10: so is one whose hand loses tracking: its peaks are stale when it comes back)
+    if (fNoSwing || !s.afVelGrip[1]) s.cstepSwingDecide = 0;
     if (s.cstepSwingHold > 0)
     {
         --s.cstepSwingHold;
@@ -2014,17 +2031,8 @@ bool FHandWorld(int k, const CAMERA& cam, glm::mat4* pmat)
     r[1] = glm::vec4(glm::normalize(glm::vec3(m[1])), 0.0f);
     r[2] = glm::vec4(glm::normalize(glm::vec3(m[2])), 0.0f);
     r[3] = m[3];
-    // (0.1.3) the player's own tuning of the bare hands (hand_turn / hand_offset, VR Settings), in the grip's axes; the
-    // left hand's mirror image across the grip's X, as the calibration's
-    const vrprofile::PROFILE& pr = Prof();
-    glm::vec3 deg = pr.degHand, cm = pr.cmHand;
-    if (k == 0)
-    {
-        deg = glm::vec3(deg.x, -deg.y, -deg.z);
-        cm.x = -cm.x;
-    }
-    const glm::mat4 matTune = glm::translate(glm::mat4(1.0f), cm * (s.scale / 100.0f)) * glm::mat4_cast(glm::quat(glm::radians(deg)));
-    *pmat = r * matTune * MatHandCal(k);
+    // (0.1.3) the player's own tuning of the bare hands (MatHandTune), then the calibration's turn
+    *pmat = r * MatHandTune(k) * MatHandCal(k);
     return true;
 }
 

@@ -138,7 +138,7 @@ character. Those with a menu row are also on **Options > VR Settings** (left/rig
 | `glide` | lines | Glider | `stick` = the stick only. |
 | `swing_speed` | 2.5 | (none) | m/s for a cane swing to attack. Accidental attacks → raise it. |
 | `hands` | auto | (none) | `left,right` indices from the `-Bones` log's `vr hands:` table, if the automatic choice is wrong. |
-| `hand_rot` / `hand_rot_left` | auto | (none) | `auto` = from the T-pose. A value under a character's section wins for that character (the X helper writes one). |
+| `hand_rot` / `hand_rot_left` | auto | (none) | `auto` = from the T-pose. A value under a character's section wins for that character (the X helper writes one; since 0.1.10 it accounts for `hand_turn`, so one saved before 0.1.10 with a non-zero `hand_turn` is off by it: do the X helper again). |
 | `tpose_left` / `tpose_right` | (set by T-pose) | Recalibrate | Delete both lines to be asked for the T-pose again. |
 | `player_eye_height` | (set by T-pose) | Recalibrate | The player's eye height in metres. |
 
