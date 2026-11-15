@@ -75,6 +75,8 @@ hand_rot = auto           ; the right hand's turn on the controller: auto (the T
 show_hands = 1            ; first person: 1 shows the character's hands on your controllers, 0 only the cane
 sly_size = 1.6            ; first person: you as a bigger (more than 1) or smaller Sly; the world and your height follow
 hand_size = 0.8           ; the bare hands drawn x this (about the wrist; also on the VR Settings page, in the pause menu too)
+turn = smooth             ; the right stick turns you: smooth, or snap (30 degrees a flick)
+turn_speed = 120          ; the smooth turn's speed at full stick, degrees a second
 cane_fit = hand           ; hand: the cane rides your tuned hand (the glove and the cane stay together); grip: the raw controller grip
 hand_turn = 0,0,0         ; the hands' turn on your grips, degrees x,y,z (the left mirrored)
 hand_offset = 0,0,0       ; the hands' shift on your grips, centimetres x,y,z (the left mirrored)
@@ -241,6 +243,13 @@ void Apply(const SECTION& sec, const char* szSection, PROFILE* pp)
         else if (key == "show_hands") fOk = FBool(val, &pp->fShowHands);
         else if (key == "hand_size") fOk = FFloat(val, &g) && g >= 0.05f && g <= 50.0f && (pp->handSize = g, true);
         else if (key == "hand_scale") fOk = FFloat(val, &g) && g >= 0.05f && g <= 20.0f && (pp->handCharScale = g, true);
+        else if (key == "turn")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "smooth" || l == "snap";
+            if (fOk) pp->fSmoothTurn = l == "smooth";
+        }
+        else if (key == "turn_speed") fOk = FFloat(val, &g) && g >= 10.0f && g <= 720.0f && (pp->degsTurn = g, true);
         else if (key == "cane_fit")
         {
             const std::string l = Lower(val);

@@ -58,6 +58,9 @@ struct PROFILE
     // (0.1.6) the character's own hands relative to Sly's (the player's tuned size is Sly's; Bentley's and Murray's gloves
     // are larger next to him): hand_scale in a section, times hand_size
     float handCharScale = 1.0f;
+    // (0.1.7) turning with the right stick: smooth (the default), or snap by 30 degrees; the smooth turn's speed, degrees a second
+    bool fSmoothTurn = true;
+    float degsTurn = 120.0f;
     bool fCaneOnHand = true;      // cane_fit: the cane rides the tuned hand (true), or the raw grip (false, 0.1.2's fit)
     glm::vec3 degHand{0.0f};
     glm::vec3 cmHand{0.0f};

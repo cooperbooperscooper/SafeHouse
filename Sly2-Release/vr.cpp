@@ -165,6 +165,7 @@ struct STATE
     bool fBodyInit = false;
     float yawBody = 0.0f;         // the body's world heading (radians, atan2(y, x))
     bool fSnapWas = false;
+    double tTurnPrev = -1.0;      // (the smooth turn's last read)
     int cstepSwingCool = 0, cstepSwingHold = 0;
     uint16_t btnSwingHeld = 0;
     // (0.1.3) a swing is decided a few steps after it starts, on its strongest upward push: an uppercut begins as
@@ -1846,9 +1847,23 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     // first person: the right stick's x snap-turns 30 degrees (to the right: the heading decreases); its y still
     // reaches the game (the binocucom's zoom, the hacking ship's guns, the RC tank's right track)
     const glm::vec2 turn = stick(s.actTurn, nullptr, nullptr);
-    const bool fSnap = std::fabs(turn.x) > 0.7f;
-    if (fSnap && !s.fSnapWas && !fMenu) s.yawBody += turn.x > 0.0f ? -glm::radians(30.0f) : glm::radians(30.0f);
-    s.fSnapWas = std::fabs(turn.x) > 0.4f;   // (released below 0.4: a little hysteresis)
+    // (0.1.7: turn = smooth, the default: the heading follows the stick's x at turn_speed degrees a second, past a small
+    // dead zone, to the right the heading decreasing; turn = snap: the 30 degree flicks)
+    const double dtTurn = s.tTurnPrev > 0.0 ? std::min(t - s.tTurnPrev, 0.1) : 0.0;
+    s.tTurnPrev = t;
+    if (pr.fSmoothTurn)
+    {
+        const float x = turn.x;
+        if (!fMenu && std::fabs(x) > 0.2f)
+            s.yawBody -= glm::radians(pr.degsTurn) * (x > 0.0f ? 1.0f : -1.0f) * ((std::fabs(x) - 0.2f) / 0.8f) * float(dtTurn);
+        s.fSnapWas = false;
+    }
+    else
+    {
+        const bool fSnap = std::fabs(turn.x) > 0.7f;
+        if (fSnap && !s.fSnapWas && !fMenu) s.yawBody += turn.x > 0.0f ? -glm::radians(30.0f) : glm::radians(30.0f);
+        s.fSnapWas = std::fabs(turn.x) > 0.4f;   // (released below 0.4: a little hysteresis)
+    }
     if (std::fabs(turn.y) > std::fabs(*pyr)) *pyr = turn.y;
     if (glm::length(turn) > 0.3f) s.tRightActive = t;
     // a swing: the right hand faster than swing_speed presses swing's button (swing_up's when it goes mostly up) for a
