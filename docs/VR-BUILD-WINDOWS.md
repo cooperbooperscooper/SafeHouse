@@ -6,12 +6,14 @@ works.
 
 ## What this source is
 
-- **SafeHouse v0.1.71:** commit `c70803c` of <https://github.com/FridiNaTor1/SafeHouse>, a native C++20 port of Sly 2.
-- **Plus the Sly 2 VR mod 0.1.2**, as uncommitted changes on top.
-- `sly2-vr-changes.patch` at the root of the bundle is every change the mod makes against `c70803c`, so you can see what
-  is the mod and what is SafeHouse.
-- No game data is included or ever needed in the source. The game data comes from the player's own disc through
-  SafeHouse.
+- **The private repo <https://github.com/cooperbooperscooper/sly2-vr>** (the player's account) holds the mod. Its
+  branch `main` is the current release.
+- **Its first commit** (tag `safehouse-v0.1.71`) is SafeHouse v0.1.71: commit `c70803c` of
+  <https://github.com/FridiNaTor1/SafeHouse>, a native C++20 port of Sly 2, imported as one commit, without upstream's
+  CI workflows.
+- **Everything after it is the Sly 2 VR mod.** `git diff safehouse-v0.1.71 main` shows every change the mod makes. (The
+  older zip bundle has the same as `sly2-vr-changes.patch`.)
+- No game data is in the repo or ever needed in it. The game data comes from the player's own disc through SafeHouse.
 
 ## Rules
 
@@ -27,19 +29,22 @@ works.
 - **Ask the player before downloading anything.** Give the file name, the source and the size.
 - **Ship changes as an update zip** through the packager and `Update.bat` (below). It backs up what it replaces, and
   `Rollback.bat` undoes it. Don't copy files into `bin\` by hand.
+- **Work on a branch, never on `main` directly.** The Mac session merges branches into `main` (below).
 
 ## One-time setup
 
-1. **Put the source in a path without spaces**, for example `C:\sly2vr\src`. The build passes a forced-include path
-   that breaks on spaces.
-2. **Tools** (ask before downloading each):
+1. **Tools** (ask before downloading each):
    - **LLVM-MinGW:** <https://github.com/mstorsjo/llvm-mingw/releases>, the `ucrt` x86_64 Windows build, e.g.
      `llvm-mingw-20261104-ucrt-x86_64.zip`. Unzip it to `C:\llvm-mingw`. The Mac session used the 20261104 release.
      **MSVC does not build Sly 2.**
-   - **CMake** 3.25 or newer (the Mac used 4.4.5), **Ninja** 1.11 or newer, **Python 3.10+**, and optionally **Git**.
-3. **Track your own changes:** in `C:\sly2vr\src`, run `git init`, `git add -A` and
-   `git commit -m "Sly 2 VR 0.1.2 as received"`. `git diff` then shows exactly what you changed, to send back to the
-   Mac session.
+   - **CMake** 3.25 or newer (the Mac used 4.4.5), **Ninja** 1.11 or newer, **Python 3.10+**, **Git for Windows**, and
+     the **GitHub CLI** (`gh`).
+2. **Log in to GitHub once:** in PowerShell, run `gh auth login --hostname github.com --git-protocol https --web`.
+   - Answer **Y** to "Authenticate Git with your GitHub credentials?".
+   - The player enters the one-time code it shows at <https://github.com/login/device> and authorizes it, with the
+     GitHub account that owns the repo. Leave the code to the player.
+3. **Clone into a path without spaces** (the build passes a forced-include path that breaks on spaces):
+   `gh repo clone cooperbooperscooper/sly2-vr C:\sly2vr\src`.
 
 ## Build
 
@@ -128,7 +133,21 @@ All of it is in `Sly2-Release/`.
   Then run `.\initest.exe test.ini`. For the migration test, copy `tools\vrtests\v011.ini` to `run.ini` and run
   `.\migtest.exe run.ini 011`; do the same for `010`. Each prints `all passed`.
 
-## Sending a change back to the Mac session
+## Getting updates and sending changes back
 
-Run `git diff > my-change.patch` in `C:\sly2vr\src` and send the patch along with what it fixes and how it was tested
-(which build, headset or not). The Mac session merges it into the main copy, so the next official update includes it.
+- **Get the Mac session's latest:** `git switch main` and `git pull`. Each release is a commit on `main`.
+- **Make a change on its own branch:**
+
+  ```powershell
+  git switch main; git pull
+  git switch -c pc/cane-angle        # (pc/<what it fixes>)
+  # ... edit, build, test on the headset ...
+  git add -A
+  git commit -m "Cane: 15 degrees more roll by default (the player's test: the hook pointed left)"
+  git push -u origin pc/cane-angle
+  ```
+
+- **Tell the player** the branch name, what it fixes and how it was tested (which build, on the headset or not). The
+  player passes that to the Mac session, which reviews and merges it into `main`, so the next update includes it.
+- **Never force-push `main`.**
+- **No repo access:** `git diff > my-change.patch` in the source folder and send the patch instead.
