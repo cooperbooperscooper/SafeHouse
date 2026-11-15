@@ -25,6 +25,7 @@
 #include "task.h"
 #include "step.h"
 #include "vtnative.h"
+#include "vraim.h"
 #include "update.h"
 #include "worldaccess.h"
 #include "xfphys.h"
@@ -146,7 +147,33 @@ void Detach(MURRAY* p) {
         RecalcSwOxfFilterForObject(p->palo);
     }
 }
+// (PC, VR: vraim.h) set while StartMurrayThrow enters the state 7: a script's throw keeps the game's own choice
+bool s_fScriptThrow=false;
+// (PC, VR: vraim.h) Murray's own throw (his pad current, not driven by a script or a job as sly.cpp's UpdateActor
+// drives it) aimed by the right controller: the ray's origin, the heading the throw points are taken around and where
+// it goes with none, as far as he points (down onto the floor under him, else where the ray meets a solid or its far
+// end), within the points' limits (150..1.3 x +0x1410), at his height as the game's own (+0x1410 ahead); *pzFloor:
+// that floor's height. Pointing at his own spot: ahead.
+bool FVrMurrayThrowAim(MURRAY* p,glm::vec3* pposFrom,float* prad,glm::vec3* ppos,float* pzFloor) {
+    glm::vec3 dir(0.0f);
+    if(s_fScriptThrow||!FVrAim(pposFrom,&dir)||p->prunScript||!p->stack.ajob.empty())return false;
+    const PODATA* po=PpodataFromLo(p->palo); const PADCTL* pc=po?po->ppadctl:nullptr;
+    if(!pc||pc->nControl!=1)return false;
+    const glm::vec3 pos=PosAloCenter(p->palo);
+    // (PC, VR) the ray reads the floor at his feet (the floor contact's point, else his base +0x240 as SetStepPos
+    // takes it), not at his middle (PosAloCenter, ~72 up: there it met the ray short of the spot pointed at)
+    *pzFloor=p->pxpFloor?p->posFloor.z:PosJtConvert(p->palo,nullptr,glm::vec3(p->vecBase)).z;
+    const float max=p->g1410*1.3f,reach=max*4.0f;
+    glm::vec3 aim(0.0f);
+    if(!(dir.z<0.0f&&FVrAimGround(*pposFrom,dir,*pzFloor,reach,&aim)))aim=PosVrAimHit(*pposFrom,dir,reach,p->palo,nullptr,Owner(p));  // (nor what he carries)
+    const glm::vec2 d(aim.x-pos.x,aim.y-pos.y);
+    const float dist=glm::length(d);
+    *prad=dist>1.0f?std::atan2(d.y,d.x):p->radHeading;
+    *ppos=pos+cmm::SetVectorCylind(*prad,std::clamp(dist,150.0f,max),0);
+    return true;
 }
+}
+static LO* PloChooseMurrayThrow(MURRAY* p,float rad,const glm::vec3* pposVr,bool fPrint,glm::vec3* ppos);
 
 // orig: 0x001842B0: resolve the three authored reference oids after the world load.
 // Native object fields retain oids; PloInteractOidField resolves the corresponding instance.
@@ -241,6 +268,15 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
     if (!a || !a->fInWorld) { Detach(p);p->plo13F0=nullptr;SetMurrayState(p,0);return; }
     PODATA* po=PpodataFromLo(p->palo); PADCTL* pc=po?po->ppadctl:nullptr;
     if (!pc) return;
+    // (PC, VR: vraim.h) while he holds it, the pointer to where the throw would go (ChooseMurrayThrowTarget's choice;
+    // with no throw point, on the floor under it, not at his middle's height)
+    {
+        glm::vec3 posFrom(0.0f),pos(0.0f),posTarget(0.0f); float rad=0.0f,zFloor=0.0f;
+        if (FVrMurrayThrowAim(p,&posFrom,&rad,&pos,&zFloor)) {
+            if(!PloChooseMurrayThrow(p,rad,&pos,false,&posTarget))posTarget.z=zFloor;
+            ShowVrAim(posFrom,posTarget);
+        }
+    }
     // orig: 0x001B53E8..0x001B5430: Cross has priority over throwing and is
     // forgotten only when the passive is owned and the carried jump starts.
     // PADCTL uses the game's button layout (Cross0x40 / R1 0x8).
@@ -272,9 +308,11 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
 }
 
 // orig: 0x001B5E98: authored target selection; no scene-specific object ids.
-void ChooseMurrayThrowTarget(MURRAY* p) {
+// (PC, VR: vraim.h) into *ppos, the points taken around the heading rad (Murray's own, or the right controller's) and
+// with none at *pposVr when given (FVrMurrayThrowAim); fPrint: the diagnostics (not the pointer's preview)
+static LO* PloChooseMurrayThrow(MURRAY* p,float rad,const glm::vec3* pposVr,bool fPrint,glm::vec3* ppos) {
     float max=p->g1410*1.3f; LO* best=nullptr;
-    const bool printCandidates=std::getenv("SLY2N_THROWCANDIDATES")!=nullptr;
+    const bool printCandidates=fPrint&&std::getenv("SLY2N_THROWCANDIDATES")!=nullptr;
     if(printCandidates) {
         const glm::vec3 pos=PosAloCenter(p->palo);
         std::fprintf(stderr,"throw-origin: frame %d pos %.3f %.3f %.3f heading %.6f type %d\n",g_iframeHarness,
@@ -287,7 +325,7 @@ void ChooseMurrayThrowTarget(MURRAY* p) {
             std::fprintf(stderr,"throw-candidate: frame %d oid %d parent %d active %d flags %X type %d pos %.3f %.3f %.3f distance %.3f dz %.3f angle %.6f\n",
                 g_iframeHarness,point->oid,point->paloParent?point->paloParent->oid:-1,point->iupd>=0,point->U32Field(0,0xE8),
                 int(point->U32Field(0,0xF4,uint32_t(-1))),pos.x,pos.y,pos.z,glm::length(glm::vec2(d)),d.z,
-                RadNormalize(std::atan2(d.y,d.x)-RadStepHeading(p)));
+                RadNormalize(std::atan2(d.y,d.x)-rad));
         }
         // orig0x184380: matching carried-use kind and outside the carried owner's hierarchy (nothing carried, e.g.
         // a script's throw (method 938) after a skipped pick-up: the original reads the PS2's low RAM at 0x19C; natively
@@ -298,17 +336,27 @@ void ChooseMurrayThrowTarget(MURRAY* p) {
         if(under)continue;
         glm::vec3 d=PosJtLo(point)-PosAloCenter(p->palo);float dist=glm::length(glm::vec2(d));
         if(dist>max||dist<150||d.z>500)continue;
-        if(std::abs(RadNormalize(std::atan2(d.y,d.x)-RadStepHeading(p)))>1.0f)continue;
-        best=point;max=dist;p->pos1420=PosJtLo(point);
+        if(std::abs(RadNormalize(std::atan2(d.y,d.x)-rad))>1.0f)continue;
+        best=point;max=dist;*ppos=PosJtLo(point);
     }
-    if(!best)p->pos1420=PosAloCenter(p->palo)+cmm::SetVectorCylind(p->radHeading,p->g1410,0);
-    if(std::getenv("SLY2N_CARRYPRINT"))std::fprintf(stderr,"carry-target: frame %d point %d (cid 0x%X parent %d) at %.1f %.1f %.1f speed %.1f\n",g_iframeHarness,
-        best?best->oid:-1,best?best->Cid():-1,best&&best->paloParent?best->paloParent->oid:-1,p->pos1420.x,p->pos1420.y,p->pos1420.z,p->g1414);
+    if(!best)*ppos=pposVr?*pposVr:PosAloCenter(p->palo)+cmm::SetVectorCylind(p->radHeading,p->g1410,0);
+    if(fPrint&&std::getenv("SLY2N_CARRYPRINT"))std::fprintf(stderr,"carry-target: frame %d point %d (cid 0x%X parent %d) at %.1f %.1f %.1f speed %.1f\n",g_iframeHarness,
+        best?best->oid:-1,best?best->Cid():-1,best&&best->paloParent?best->paloParent->oid:-1,ppos->x,ppos->y,ppos->z,p->g1414);
+    return best;
+}
+void ChooseMurrayThrowTarget(MURRAY* p) {
+    // (PC, VR: vraim.h) the controller's aim, else Murray's heading as the original's
+    glm::vec3 posVrFrom(0.0f),posVr(0.0f); float radVr=0.0f,zFloorVr=0.0f;
+    const bool fVr=FVrMurrayThrowAim(p,&posVrFrom,&radVr,&posVr,&zFloorVr);
+    const LO* best=PloChooseMurrayThrow(p,fVr?radVr:RadStepHeading(p),fVr?&posVr:nullptr,true,&p->pos1420);
+    if(fVr)ShowVrAim(posVrFrom,best?p->pos1420:glm::vec3(p->pos1420.x,p->pos1420.y,zFloorVr));
 }
 
 // orig: 0x001B7A78: state7's initial target selection precedes the explicit scripted destination.
 void StartMurrayThrow(MURRAY* p,LO* target) {
+    s_fScriptThrow=true;   // (PC, VR: vraim.h) a script's throw: not the controller's aim
     SetMurrayState(p,7);
+    s_fScriptThrow=false;
     if(target) { p->pos1420=PosJtLo(target);SetStepPhysHeadingToward(p->palo,p->pos1420-PosAloCenter(p->palo)); }
 }
 // orig: 0x001B7970 / 0x001D69F0

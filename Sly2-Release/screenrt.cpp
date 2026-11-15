@@ -723,9 +723,11 @@ void DrawScreenObjs(SW* psw)
         const bool fFourThree = FFourThreeMenuObj(plo);   // (qolview.h: the gadget grid, Job Help)
         g_hud.fClipCanvasObj = FClipEpisodeMenuToCanvas(plo) || fFourThree;   // (frontend.h: the episode menu on a wide picture)
         g_hud.fWideRectsOnlyObj = plo->oid == 0x30A && !NoWipeMaskFix();   // (the wipe's Sly mask)
+        g_hud.fNoBarsObj = plo->oid == 0x373 && g_fHudWritesAlpha;       // (PC, VR: hud.h)
         p->player.Draw(pfont, picons, psw);
         if (fFourThree) g_hud.Pillarbox(glm::vec4(0, 0, 0, 128), (g_zScreenBase + 262000.0f) / 16777216.0f);   // (over the world, under higher priorities)
         g_hud.fWideRectsOnlyObj = false;
+        g_hud.fNoBarsObj = false;
         g_hud.fWideEdgesObj = false;
         g_hud.fClipCanvasObj = false;
     }

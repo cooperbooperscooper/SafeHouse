@@ -2,6 +2,8 @@
 #include "rumble.h"
 
 #include "pcinput.h"
+#include "shop.h"
+#include "vr.h"
 #include "actioninput.h"
 #include "skipcut.h"
 #include "debugmenu.h"
@@ -148,6 +150,18 @@ void UpdateJoy(JOY* pjoy, GLFWwindow* pwindow, int frame, const std::vector<JOYP
         uint16_t grfPc = 0;
         bool fPad = false;
         ReadPcInput(pwindow, &grfPc, &xl, &yl, &xr, &yr, &fPad);
+        {
+            // (vr.h: the prompts go back to the keyboard's or the pad's icons on their new input)
+            static uint16_t s_grfPcPrev = 0;
+            if ((grfPc & ~s_grfPcPrev) || xl * xl + yl * yl > 0.25f || xr * xr + yr * yr > 0.25f) vr::NoteOtherInput();
+            s_grfPcPrev = grfPc;
+        }
+        const bool fMenuPc = FPcMenuMode();
+        // (VR: the ThiefNet shop and the safe house's menu object (cid 0x46) also take no swings or snap turns)
+        const LO* ploVrCur = g_psw ? PloPoCurrent(g_psw) : nullptr;
+        const bool fMenuVr = fMenuPc || FShopShown() || (ploVrCur && ploVrCur->Cid() == 0x46);
+        vr::ReadControllers(&grfPc, &xl, &yl, &xr, &yr, fMenuVr);   // (vr.h: the motion controllers' buttons and sticks)
+        grfPc |= vr::GrfAutoPause(fMenuPc);                         // (vr.h: the headset lost focus: the pause menu once)
         grf |= grfPc;
         g_grfJoyWindow = grfPc;
         pjoy->fConnected = fPad;

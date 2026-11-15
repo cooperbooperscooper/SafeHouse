@@ -25,6 +25,7 @@ extern int g_iframeHarness;
 #include <map>
 
 CHud g_hud;
+bool g_fHudWritesAlpha = false;   // (PC, VR: vr.h BeginHudLayer .. SubmitPanel)
 
 namespace
 {
@@ -159,6 +160,12 @@ void CHud::DrawSprite(const SELEM& elem, const HUDSTATE& st)
                 std::printf("span poly prim %d cv %zu rgba %08X:", poly.primitive, av.size(), poly.rgba);
                 for (const VTX& v : av) std::printf(" (%.1f %.1f)", v.pos.x, v.pos.y);
                 std::printf("\n");
+            }
+            // (PC, VR: hud.h fNoBarsObj) the cut scenes' letterbox bars left off the VR HUD panel (the mask modes kept)
+            if (fNoBarsObj && fSpan && (hi.y < 224.0f || lo.y > 224.0f) && m_mode != 1 && m_mode != 2)
+            {
+                cvtxLeft -= int(av.size());
+                continue;
             }
             // (the wipe's Sly mask: its strips overshoot the canvas when it grows; only its rectangles (the black
             // backdrop) are widened, the mask keeps its shape)
@@ -916,7 +923,9 @@ void CHud::Flush(int width, int height)
     glEnable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    // (PC, VR: vr.h BeginHudLayer) over the VR HUD layer's transparent clear, the coverage too (premultiplied colour)
+    if (g_fHudWritesAlpha) glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, g_fHudWritesAlpha ? GL_TRUE : GL_FALSE);
     glHudShader.Use();
     glUniform4f(glHudShader.Loc("uCanvas"), g_display.uiScale.x, g_display.uiScale.y, g_display.uiOffset.x, g_display.uiOffset.y);
     glBindVertexArray(s_vao);
@@ -952,7 +961,7 @@ void CHud::Flush(int width, int height)
     auto setMode = [&](int mode) {
         // the 2D modes of 0x217298 (MSCAL pairs into P_K21's GS-state blocks), as the HUD uses them around a
         // masked piece: 1 writes the mask, 3 draws inside it, 2 clears it, 4 (and 0) draw normally.
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, g_fHudWritesAlpha ? GL_TRUE : GL_FALSE);   // (PC, VR: as above)
         glDisable(GL_STENCIL_TEST);
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);

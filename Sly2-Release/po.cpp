@@ -34,6 +34,7 @@ void PrintRef(const CRef& ref, std::string* ps);  // bif.cpp (debug)
 #include "scpt.h"
 #include "spliceobj.h"
 #include "cplcy.h"
+#include "vr.h"
 #include "smrun.h"
 #include "sw.h"
 #include "task.h"
@@ -314,10 +315,26 @@ void UpdatePadctl(PADCTL* ppc)
         ppc->grfbtn = (j.grfbtn & ~j.grfbtnHandled) | (ppd ? ppd->grfbtnForced : 0);
         ppc->grfbtn = sly2actions::HeldButtons(ppc, ppc->grfbtn, ppd ? ppd->grfbtnForced : 0);
         cmm::DecomposeRotateMatrixPanTilt(g_cm.mat, &radPan, &radTilt);
+        vr::FFirstPersonPan(&radPan);   // (vr.h, first person: the stick's forward is where your head looks)
     }
     ppc->matCam = cmm::BuildPanTiltMatrix(radPan, radTilt);
     TurnPadctlStick(radPan, &ppc->x, &ppc->y, &ppc->radJoy, &ppc->uJoy, &ppc->uJoyDecay);
     TurnPadctlStick(radPan, &ppc->x2, &ppc->y2, &ppc->radJoy2, &ppc->uJoy2, &ppc->uJoyDecay2);
+    // (VR first person, glide = lines: vr.h FGlideLines) the paraglider's glide (the jump's state 20) steered by your
+    // raised hands as on its lines: the stick against the body's heading as UpdateJumpInput reads it, turn (-1 left ..
+    // 1 right) across it (its sine: a positive one turns left) and pull (0 .. 1) back along it (slower, flatter); not
+    // held as lines: the stick as it is
+    if (ppc->nControl == 1 && vr::FFirstPersonEyes() && vr::ProfileCur().fGlideLines)
+        if (ACTOR* pa = ppc->plo ? PactorFromLo(ppc->plo) : nullptr; pa && pa->jump.state == 20)
+            if (float turn = 0.0f, pull = 0.0f; vr::FGlideLines(&turn, &pull))
+            {
+                const float s = -std::clamp(turn, -1.0f, 1.0f), f = -std::clamp(pull, 0.0f, 1.0f);
+                const float u = std::min(1.0f, std::sqrt(s * s + f * f));
+                const float radHeading = RadStepHeading(pa);   // (0x198954 -> 0x204740, as the glide's steering)
+                ppc->radJoy = 0.0f < u ? cmm::RadNormalize(radHeading + std::atan2(s, f)) : radHeading;
+                ppc->uJoy = u;
+                ppc->uJoyDecay = u;
+            }
     // (debug: SLY2N_AUTOSTEER="X Y@tA-tB[,U];...": between the game times A and B the controlled player's left stick
     // points at the world point (X, Y) with deflection U (default 1): a player's stick in any camera)
     if (static const char* s_sz = std::getenv("SLY2N_AUTOSTEER"); s_sz && ppc->nControl == 1 && ppc->plo &&

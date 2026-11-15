@@ -2,6 +2,7 @@
 // 0x185110..0x1865F8 (0x185310 / 0x1856B8 / 0x1856C0 / 0x185A80 / 0x185BF8 / 0x185CE0 / 0x185D18 / 0x185E30 /
 // 0x185E40) and the state 21 parts of 0x18C250.
 #include "climbsurf.h"
+#include "vr.h"
 #include "activate.h"
 #include "brx.h"
 #include "crv.h"
@@ -329,7 +330,9 @@ void UpdateSlyClimbSurf(SLY* p)
     if (0.0f < speed)
     {
         glm::vec3 movement(0.0f, -pc->x, pc->y);
-        const glm::mat3 rotation = InverseMatrix3(p->matHeading) * g_cm.mat;  // (D_002DDFA0)
+        // (PC, VR first person: the stick by the pad's own camera turn, which follows your head (po.cpp); g_cm otherwise)
+        const glm::mat3 matStick = vr::FFirstPersonEyes() ? pc->matCam : g_cm.mat;
+        const glm::mat3 rotation = InverseMatrix3(p->matHeading) * matStick;  // (D_002DDFA0)
         movement = rotation * movement;
         movement.x = 0.0f;
         const float l = std::sqrt(Dot3(movement, movement));
@@ -421,7 +424,8 @@ void UpdateSlyHangFollow(SLY* p)
     PODATA* ppd = PpodataFromLo(palo);
     PADCTL* pc = ppd ? ppd->ppadctl : nullptr;
     const glm::vec3 local(0.0f, pc ? -pc->x : 0.0f, pc ? pc->y : 0.0f);
-    const glm::vec3 world = g_cm.mat * local;                        // (D_002DDFA0's rows)
+    const glm::mat3 matStick = vr::FFirstPersonEyes() && pc ? pc->matCam : g_cm.mat;   // (PC, VR: as above)
+    const glm::vec3 world = matStick * local;                        // (D_002DDFA0's rows)
     const glm::vec3 rel = glm::transpose(glm::mat3(m)) * world;      // 0x1A6FC0 (into the hook's frame)
     const float l = std::sqrt(Dot3(rel, rel));
     const glm::vec3 n = l < F32(0x38D1B717) ? glm::vec3(0.0f, 0.0f, -1.0f) : rel * (1.0f / l);

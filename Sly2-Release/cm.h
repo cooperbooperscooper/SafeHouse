@@ -238,6 +238,11 @@ void SetCmUFogMax(CM* pcm, float uFogMax);
 void SetCmRgbaFog(CM* pcm, uint32_t rgba);
 void SetCmMrdRatio(CM* pcm, float rMRD);
 void JoltCm(CM* pcm, int n);
+// (PC, VR: vr.h) The camera the game's "can the player see it" checks use (photo.cpp, spawner.cpp, aipursuit.cpp,
+// laserrender.cpp): g_cm itself, or, while a headset's eyes are drawn, a copy of it at the head's place and turn with
+// the headset's field of view (its view planes built again; the draw distances, fog and policies g_cm's). Kept for
+// a step: a reference, valid until the next step.
+const CM& CmView();
 // orig: 0x0014F768 (the stereo eye's clip matrix: k 1 left, 2 right)
 cmm::MATRIX4 MatCmStereoEye(const CM* pcm, int k, const cmm::MATRIX4* pmatProj);
 // orig: 0x0014F850 FInsideCmPlanes (the point in front of the three transposed planes by w.x)

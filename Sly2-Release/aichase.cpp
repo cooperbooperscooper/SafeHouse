@@ -246,7 +246,8 @@ int JOBCHASE::IBest()
         float u1 = 0.0f, u2 = 0.0f, u3 = 0.0f;
         if (FInRg(RG_BEHIND_UP, g)) u1 = GRemapRg(RG_BEHIND_UP, g);
         else if (FInRg(RG_BEHIND_DOWN, g)) u1 = 1.0f - GRemapRg(RG_BEHIND_DOWN, g);
-        const glm::vec3 vs = ConvertCmWorldToScreen(&g_cm, pgraph->crv.apos[k]);  // 0x14F308
+        // (PC, VR: cm.h CmView: with a headset, where she appears is judged by your head's view; g_cm otherwise)
+        const glm::vec3 vs = ConvertCmWorldToScreen(&CmView(), pgraph->crv.apos[k]);  // 0x14F308
         if (FInRg(RG_DEPTH_UP, vs.z)) u2 = GRemapRg(RG_DEPTH_UP, vs.z);
         else if (FInRg(RG_DEPTH_DOWN, vs.z)) u2 = 1.0f - GRemapRg(RG_DEPTH_DOWN, vs.z);
         const float gScreen = std::sqrt(vs.x * vs.x + vs.y * vs.y);

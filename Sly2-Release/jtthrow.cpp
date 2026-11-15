@@ -24,6 +24,7 @@
 #include "sw.h"
 #include "trail.h"
 #include "vecmat.h"
+#include "vraim.h"
 #include "vtnative.h"
 
 #include <algorithm>
@@ -113,6 +114,24 @@ PADCTL* Pad(ACTOR* actor)
 {
     PODATA* data = PpodataFromLo(actor->palo);
     return data ? data->ppadctl : nullptr;
+}
+
+// (PC, VR: vraim.h) The right controller's ray when it aims this throw: the player's own only (the pad current, not
+// driven by a script or a job as sly.cpp's UpdateActor drives it: e.g. scpt.cpp's 0x5A presses the throw once
+// SetJtThrowTarget's aim has arrived, which the controller must not move)
+bool FVrThrowAim(const JTTHROW& t, const PADCTL* pad, glm::vec3* ppos, glm::vec3* pdir)
+{
+    const ACTOR* actor = t.owner;
+    if (!pad || pad->nControl != 1 || actor->prunScript || !actor->stack.ajob.empty()) return false;
+    return FVrAim(ppos, pdir);
+}
+
+// (PC, VR: vraim.h) The height of the thrower's feet, where the controller's ray reads the floor it points at: the floor
+// contact's point, else its base (+0x240, Sly's (0, 0, -75)) as SetStepPos / PosActorFocus take it (PosJtLo is the
+// object record's, the body's middle: a plane there met the ray short of the spot pointed at)
+float ZVrThrowFloor(ACTOR* actor)
+{
+    return actor->pxpFloor ? actor->posFloor.z : PosJtConvert(actor->palo, nullptr, glm::vec3(actor->vecBase)).z;
 }
 
 // The global Bentley is represented natively by the one initialized Bentley object.
@@ -421,8 +440,28 @@ void UpdateJtThrow(JTTHROW& t)
             const float maximum = FPowerupOwned(36) ? t.sAimMax * 1.5f : t.sAimMax;
             glm::vec3 delta = t.targetWorld - ownerPosition;
             delta.z = 0.0f;
-            const float advance = (pad ? pad->uJoy : 0.0f) * g_clock.dt * t.inputScale;
-            delta += cmm::SetVectorCylind(pad ? pad->radJoy : 0.0f, advance, 0.0f);
+            // (PC, VR: vraim.h) the arrow goes where the right controller points: down onto the floor under the owner
+            // (ZVrThrowFloor), else (pointing up or past it, or a hand below it) where the ray meets a solid or its
+            // far end; only the xy (the arrow stays at the owner's height). It replaces the stick's push (the left
+            // stick still walks in VR); the radius limits below as the stick's. Pointing at the owner's own spot keeps
+            // the arrow's heading.
+            glm::vec3 posVr(0.0f), dirVr(0.0f);
+            const bool fVr = FVrThrowAim(t, pad, &posVr, &dirVr);
+            const float zFloorVr = fVr ? ZVrThrowFloor(actor) : 0.0f;
+            if (fVr)
+            {
+                const float sReach = maximum * 4.0f;
+                glm::vec3 posAim(0.0f);
+                if (!(dirVr.z < 0.0f && FVrAimGround(posVr, dirVr, zFloorVr, sReach, &posAim)))
+                    posAim = PosVrAimHit(posVr, dirVr, sReach, actor->palo, nullptr, t.selected);   // (nor what it holds)
+                const glm::vec3 deltaVr(posAim.x - ownerPosition.x, posAim.y - ownerPosition.y, 0.0f);
+                if (deltaVr.x * deltaVr.x + deltaVr.y * deltaVr.y > 1.0f) delta = deltaVr;
+            }
+            else
+            {
+                const float advance = (pad ? pad->uJoy : 0.0f) * g_clock.dt * t.inputScale;
+                delta += cmm::SetVectorCylind(pad ? pad->radJoy : 0.0f, advance, 0.0f);
+            }
             const float radius = std::clamp(std::sqrt(delta.x * delta.x + delta.y * delta.y), t.sAimMin, maximum);
             t.targetWorld = ownerPosition + cmm::SetVectorCylind(std::atan2(delta.y, delta.x), radius, 0.0f);
             // (test only: SLY2N_THROWTARGET="X Y[@T][;X Y@T..]" holds the aim arrow at that ground point, at the owner's
@@ -437,6 +476,8 @@ void UpdateJtThrow(JTTHROW& t)
                 if (c >= 2 && (c < 3 || g_clock.t >= tFrom)) x = x0, y = y0, fTarget = true;
             }
             if (fTarget) t.targetWorld = glm::vec3(x, y, ownerPosition.z);
+            // (PC, VR: vraim.h) the pointer, to the arrow on the floor (not in the air at the owner's middle)
+            if (fVr) ShowVrAim(posVr, glm::vec3(t.targetWorld.x, t.targetWorld.y, zFloorVr));
         }
         UpdateJtThrowArc(t, true);
     }

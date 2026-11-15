@@ -1,5 +1,6 @@
 // See moviegl.h.
 
+#include "vr.h"
 #include "moviegl.h"
 
 #include "display.h"
@@ -119,7 +120,19 @@ bool PresentMovieGl(const uint8_t* prgba, int cx, int cy, void* pv)
             return false;
         }
     }
-    if (!prgba) return true;
+    // (PC, VR: vr.h) the headset keeps its frames during a movie: the picture on the big screen (each call, the
+    // between-picture ones too, so its events and timing go on); the session lost: the game goes on in the window
+    auto vrFrame = [&]() {
+        if (!m.fWindowed || !vr::Active()) return;
+        const bool fVr = vr::BeginFrame(g_gl.window);
+        if (fVr) vr::SubmitPanel(true);
+        vr::EndFrame();
+    };
+    if (!prgba)
+    {
+        vrFrame();
+        return true;
+    }
     DrawMoviePicture(m, prgba, cx, cy);
     if (m.fWindowed)
     {
@@ -136,6 +149,7 @@ bool PresentMovieGl(const uint8_t* prgba, int cx, int cy, void* pv)
     }
     if (m.fWindowed)
     {
+        vrFrame();
         g_gl.Present();
         cane::gl::SwapBuffers(g_gl.window);
     }

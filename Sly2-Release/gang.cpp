@@ -61,6 +61,7 @@ void UpdateMurrayBerserkTransitions(MURRAY* p);  // (below, 0x1B8EC0)
 #include "projectile.h"
 #include "pccharacter.h"
 #include "pcguard.h"
+#include "vraim.h"
 void LaunchFrom(LO* plaunch, LO* po);                                  // launcher.cpp (0x1D6B00)
 void SetLauncherAim(LO* plaunch, LO* ptarget, const glm::vec3& offset);  // launcher.cpp
 #include "bsp.h"
@@ -457,6 +458,18 @@ bool FBentleyCanDo(BENTLEY* p, int n)
     }
 }
 
+// (PC, VR: vraim.h) The dart's aim along the right controller's ray in place of the screen centre's line: as far
+// (40000), the nearest solid not Bentley's nor his parts' (the ray starts at the hand, next to him), else its far
+// end; the pointer drawn to it. False: no controller aim (the camera's, as the original).
+bool FBentleyVrDartAim(const BENTLEY* p, glm::vec3* pposAim)
+{
+    glm::vec3 pos, dir;
+    if (!FVrAim(&pos, &dir)) return false;
+    *pposAim = PosVrAimHit(pos, dir, 40000.0f, p->palo);
+    ShowVrAim(pos, *pposAim);
+    return true;
+}
+
 }  // namespace
 // orig: 0x001356E8 (the dart's aim: the line from the camera's screen centre (depth 10) to 40000 deep, the nearest
 // solid entry it meets (0x20FAA0 with 0x20FA10, not the actor's own; 0x14CC58), else its far end) and 0x001357C0 (the
@@ -468,11 +481,17 @@ void FireBentleyDart(BENTLEY* p, uint32_t grf)
     ALO* palo = p->palo;
     const glm::vec3 a = ConvertCmScreenToWorld(&g_cm, glm::vec3(0.0f, 0.0f, 10.0f));      // D_002BC970
     const glm::vec3 b = ConvertCmScreenToWorld(&g_cm, glm::vec3(0.0f, 0.0f, 40000.0f));   // D_002BC980
-    std::vector<SOE*> apsoe;
-    for (SOE* pe : AsolidWithTree(a, b))
-        if (pe->palo != palo) apsoe.push_back(pe);
-    LSG lsg;
-    glm::vec3 posAim = PsoeHitTestLineObjects(1, a, b, apsoe, &lsg) ? lsg.pos0 : b;
+    // (PC, VR: vraim.h) aimed with the controller when it has one (the headset's eyes drawn: the screen's centre is
+    // not where the player looks); SLY2N_DARTAT below still wins
+    glm::vec3 posAim;
+    if (!FBentleyVrDartAim(p, &posAim))
+    {
+        std::vector<SOE*> apsoe;
+        for (SOE* pe : AsolidWithTree(a, b))
+            if (pe->palo != palo) apsoe.push_back(pe);
+        LSG lsg;
+        posAim = PsoeHitTestLineObjects(1, a, b, apsoe, &lsg) ? lsg.pos0 : b;
+    }
     // (debug: SLY2N_DARTAT=oid aims at that object's centre instead of the screen's)
     // ("OID#K": the K-th in-world copy, led around the world's z axis by the turn seen since the previous shot at it,
     // for the turning Ep8 bulbs; SLY2N_DARTAT can also be changed by a route's "env" step)
@@ -1366,6 +1385,13 @@ void UpdateBentley(LO* plo)
     UpdateJtCandidates(p, FPcCarm(p->palo) ? 0x80 : 0xF8FE);  // 0x194A40 (the interaction targets, jt.cpp)
     UpdateBentleyF00(p);
     if (PpadctlOf(p)) UpdateBentleyTransitions(p);
+    // (PC, VR: vraim.h) the darts ready or reloading (the binocucom open: the second state machine's 0 / 1, 0x136338):
+    // the pointer along the controller's aim each step, so the player sees where a dart would land before firing
+    if (PpadctlOf(p) && !FPcCarm(p->palo) && (p->n16BC == 0 || p->n16BC == 1))
+    {
+        glm::vec3 posAim;
+        FBentleyVrDartAim(p, &posAim);
+    }
     switch (p->state)
     {
     case 0:

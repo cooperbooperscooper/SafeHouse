@@ -45,6 +45,8 @@ public:
     // Original 0x1475C0: previous/current ordinary pictures, then an immutable two-sheet atlas.
     GLuint texOverlay = 0;
     void RememberOverlaySourceFrame();
+    // (PC, VR: game.cpp) the remembered pictures forgotten (a headset's frame is no picture to capture)
+    void ForgetOverlaySources() { iOverlaySource = cOverlaySources = 0; }
     bool CaptureOverlayFrame();
     void ReleaseOverlayFrame();
 

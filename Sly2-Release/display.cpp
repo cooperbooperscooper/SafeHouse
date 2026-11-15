@@ -1,6 +1,7 @@
 // See display.h. Adapted from Sly1-Release gl.cpp (ApplyAspectRatioSettings, ApplyWindowModeSettings,
 // FrameBufferSizeCallBack) and cm.cpp (RecalcCm's aspect modes).
 
+#include "vr.h"
 #include "display.h"
 
 #include "gl.h"
@@ -244,6 +245,8 @@ void ApplyDisplaySettings(GLFWwindow* window)
             fSwapPacesFrames = true;
         }
     }
+    // (PC, VR: vr.h) a headset session paces the frames by xrWaitFrame: the window must not wait for the monitor too
+    if (vr::Active()) interval = 0, fSwapPacesFrames = false;
     cane::gl::SwapInterval(interval);
     g_display.fSwapPacesFrames = fSwapPacesFrames;
     static int s_interval = -1, s_refreshRate = -1, s_frameRate = -1, s_window = -1;

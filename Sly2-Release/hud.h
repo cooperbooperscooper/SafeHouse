@@ -40,6 +40,10 @@ public:
     // (QoL) the object being drawn is the wipe (0x30A, the Sly mask transition): on a wide picture only its full-span
     // rectangles go to the picture's edges; the mask's strips, which overshoot the canvas as it grows, keep their shape
     bool fWideRectsOnlyObj = false;
+    // (PC, VR) the object being drawn is the cut scenes' subtitle box (0x373) on the VR HUD layer (g_fHudWritesAlpha): its
+    // full-width polygons in either half (the letterbox's bars, floating in front of the view) are left out: the cut
+    // scene fills the view and the captions stay
+    bool fNoBarsObj = false;
     void Begin();
     // 0x217298's 2D mode (1 mask write, 3 masked, 2 mask clear, 4 / 0 normal) for what follows.
     void SetMode(int mode);
@@ -120,6 +124,8 @@ private:
 };
 
 extern CHud g_hud;
+// (PC, VR: vr.h BeginHudLayer .. SubmitPanel) the HUD writes its coverage into alpha (the VR HUD layer); false: as before
+extern bool g_fHudWritesAlpha;
 
 // The kind-21 RPLs of a reference RAM (0x3B3980..: {21, z, packet A, chain B}) drawn natively: their matrices and
 // colours from the packets, their geometry from the loaded screen objects (matched by object id, element index

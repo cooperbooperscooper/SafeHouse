@@ -28,6 +28,7 @@ families; in-game PlayStation prompts keep the game's original glyphs).
 | `prompts_keyboard.png` | Keycaps (letters, digits, F-keys, punctuation, editing keys) and the mouse (buttons, wheel, movement) |
 | `prompts_devices.png` | Controller pictures for Sly 2's pause Controls page: Kenney's Xbox Series, Switch Pro, Steam Controller (2015), PS4 and PS5 silhouettes (Vector set, rasterised by the packer: 8 px per unit, even-odd fill, 4x supersampled), each as a body cell and a filled, dilated underlay cell; the Steam Deck and the 2026 Steam Controller are composed by the packer (`compose_steamdeck`, `compose_steamcontroller2026`): Kenney's silhouettes leave out their thumbsticks, so the Deck is drawn after the real one (d-pad / face buttons and thumbsticks over square trackpads, View / Menu by the screen's top corners, the bumpers and triggers on the top edge) and the 2026 controller is Kenney's `controller_steam_new` with the d-pad / face buttons moved out and a stick added above each trackpad |
 | `prompt_atlas_rects.inc` | Icon rects per family and button, used by `platform/button_prompts.h` |
+| `prompts_vr.png` | (Sly 2's VR mod, `-DSLY2_VR=ON` builds only) Meta Quest Touch and Valve Index icons, packed by `tools/pack_vr_prompts.py` from the same archive, with its rect table `Sly2-Release/vrprompt_rects.inc`; the Index has no grip icon, so the Quest's grips stand in. Meta Quest and Valve Index names are trademarks of their owners |
 | `prompt_data.cpp` | Embeds the PNGs and `gamecontrollerdb.txt` (built by `cmake/prompts.cmake`) |
 
 Each icon is a 128 px cell from the archive's `Double` set in a 144 px grid
@@ -47,6 +48,13 @@ curl -L -o kenney_input-prompts_1.5.zip \
   https://kenney.nl/media/pages/assets/input-prompts/8de120163f-1783763952/kenney_input-prompts_1.5.zip
 python3 -I tools/pack_prompts.py --zip kenney_input-prompts_1.5.zip          # writes the files
 python3 -I tools/pack_prompts.py --zip kenney_input-prompts_1.5.zip --check  # verifies them
+```
+
+The VR mod's atlas (`prompts_vr.png`, `Sly2-Release/vrprompt_rects.inc`) comes from the same archive:
+
+```
+python3 tools/pack_vr_prompts.py --zip kenney_input-prompts_1.5.zip          # writes them
+python3 tools/pack_vr_prompts.py --zip kenney_input-prompts_1.5.zip --check  # verifies them
 ```
 
 The sha256 above was checked again on 2026-10-28 (kenney.nl's download links are

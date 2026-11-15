@@ -24,6 +24,8 @@ glm::mat3 BuildLookAtMatrixZ(const glm::vec3& vec);  // mat.h (0x11B7E0)
 #include "sw.h"
 #include "update.h"
 #include "vecmat.h"
+#include "vr.h"
+#include "vraim.h"
 #include "vtnative.h"
 #include "xf.h"
 void PredictXfChain(XF* pxf, XF* pxfStop, float dt, glm::mat4* pmat, glm::mat4* pdmat);  // xfphys.h (0x2309E8)
@@ -64,6 +66,10 @@ struct TURRET
     LO* pmount = nullptr;    // +0x1D0 (920): the camera's mount (null: itself)
     int fSmooth = 1;         // +0x1D4 (921)
     CTRLPOS* pctrl = nullptr;  // +0x1D8
+    // (PC, VR: vraim.h) stereo's controller aim: the attach camera's turn held (FTurretAttach), and the mount's turn in
+    // the base's frame when the hold began (FTurretVrAngles)
+    bool fVrHold = false;
+    glm::mat3 matVrMount{1.0f};
 };
 
 std::unordered_map<const LO*, TURRET> s_mpturret;
@@ -101,6 +107,113 @@ void SetTurretRotate(ALO* palo, TURRET& t, int f)
     }
 }
 
+// (PC, VR: vraim.h) How far the controller's aim looks for a solid (as the dart's line, gang.cpp), and how near the
+// gun a point the ray meets is too near to turn the barrel onto (it is then turned along the ray)
+constexpr float kSVrAim = 40000.0f;
+constexpr float kSVrAimNear = 200.0f;
+
+// orig: 0x00151950's mount (FTurretAttach): the world matrix of +0x1D0 (itself by default); *ppxf (optional): the
+// record it is placed by (null: none)
+glm::mat4 MatTurretMount(LO* plo, const TURRET& t, const XF** ppxf)
+{
+    LO* pm = t.pmount ? t.pmount : plo;
+    glm::mat4 m(1.0f);
+    const XF* pxf = nullptr;
+    if (FCidDerivedFrom(pm->Cid(), 0x30))
+    {
+        ALO* pa = static_cast<ALO*>(pm);
+        pxf = PxfObj(pa);
+        if (pxf) m = pxf->matWorld;
+    }
+    else if (const LOX* plox = dynamic_cast<const LOX*>(pm))
+    {
+        pxf = plox->pxf;
+        m = plox->pxf ? plox->pxf->matWorld * plox->mat : plox->mat;
+    }
+    if (ppxf) *ppxf = pxf;
+    return m;
+}
+
+// (PC, VR: vraim.h) The frame the turret's angles are measured in: the world turn of the rotation record's reference
+// (its world is the reference's world x its local, UpdateXfWorld), none without one
+glm::mat3 MatTurretBase(ALO* palo)
+{
+    const XF* pxfRot = PxfRot(palo);
+    const XF* pxfBase = pxfRot ? pxfRot->pxfRef : nullptr;
+    return pxfBase ? glm::mat3(pxfBase->matWorld) : glm::mat3(1.0f);
+}
+
+// (PC, VR: vraim.h) Whether the record pxf is pxfRot or is placed from it through its references (a camera mounted
+// on it turns with the gun)
+bool FXfFrom(const XF* pxf, const XF* pxfRot)
+{
+    for (int i = 0; pxf && pxfRot && i < 64; pxf = pxf->pxfRef, ++i)
+        if (pxf == pxfRot) return true;
+    return false;
+}
+
+// (PC, VR: vraim.h) The current player's turret pointed with the right controller: the angles that turn the barrel
+// onto where its ray meets a solid (along the ray when it meets none, or one at the gun), within the limits, and the
+// pointer drawn from the hand to where the barrel's line meets a solid. False: not the player's, or no controller aim
+// (the pad and the mouse, as the original).
+//   The angles are the rotation record's (PxfRot): its controller holds the Euler angles (0, -tilt, pan)
+//   (SetTurretRotate, SetCtrlPos below), whose row 0 (MatEuler) is (cos t cos p, cos t sin p, sin t): the barrel's
+//   forward as a heading atan2(y, x) and an elevation up, as the aim at a target above measures it
+//   (DecomposeRotateMatrixPanTilt). They are local to the record's reference (MatTurretBase), so the aim is turned
+//   into that frame first.
+//   The ray is the world's: first person's eyes keep the body's heading (game.cpp, vr.h RadBodyYaw), and stereo's
+//   hang from the game camera (vr.cpp MatCamOf), which the attach camera would turn with a mount that turns with the
+//   gun (each turn of the gun turning the ray as much again); stereo holds that mount's turn (fVrHold, FTurretAttach).
+bool FTurretVrAngles(ALO* palo, TURRET& t, const PADCTL& pc, float* pradPan, float* pradTilt)
+{
+    glm::vec3 pos, dir;
+    if (!FVrAim(&pos, &dir) || pc.nControl != 1 || PloPoCurrent(g_psw) != palo)
+    {
+        t.fVrHold = false;
+        return false;
+    }
+    const XF* pxfRot = PxfRot(palo);
+    const glm::mat3 matBase = MatTurretBase(palo);
+    if (!(std::fabs(glm::determinant(matBase)) > 1e-12f))   // (a frame of no size: no turn to take)
+    {
+        t.fVrHold = false;
+        return false;
+    }
+    const glm::mat3 matBaseInv = glm::inverse(matBase);
+    // stereo: the mount's turn in the base's frame as the aim begins, held while it aims (the camera stays where it
+    // was; a base that moves carries it)
+    const XF* pxfMount = nullptr;
+    const glm::mat4 matMount = MatTurretMount(palo, t, &pxfMount);
+    const bool fHold = !vr::FFirstPersonEyes() && FXfFrom(pxfMount, pxfRot);
+    if (fHold && !t.fVrHold) t.matVrMount = matBaseInv * glm::mat3(matMount);
+    t.fVrHold = fHold;
+    // the barrel turned onto the point the ray meets, as the hand is beside the gun, not on its line
+    const glm::vec3 posPivot = pxfRot ? glm::vec3(pxfRot->matWorld[3]) : PosLoWorld(palo);
+    glm::vec3 dirAim = dir;
+    bool fHit = false;
+    const glm::vec3 posHit = PosVrAimHit(pos, dir, kSVrAim, palo, &fHit);
+    if (fHit && glm::length(posHit - posPivot) > kSVrAimNear) dirAim = glm::normalize(posHit - posPivot);
+    float radPan, radTilt;
+    cmm::DecomposeRotateMatrixPanTilt(BuildLookAtMatrixZ(matBaseInv * dirAim), &radPan, &radTilt);
+    // the pan taken nearest the current one (limits of a full turn or more) or nearest the limits' middle (narrower:
+    // pointed past them, the nearer limit), then the limits as UpdateTurretAim's
+    const float radRef = 2.0f * cmm::PI <= t.lm1A4.gMax - t.lm1A4.gMin ? t.radPan : 0.5f * (t.lm1A4.gMin + t.lm1A4.gMax);
+    radPan = cmm::GLimitLm(&t.lm1A4, radRef + cmm::RadNormalize(radPan - radRef));
+    radTilt = cmm::GLimitLm(&t.lm19C, radTilt);
+    // the pointer to where the barrel's line, as limited, meets a solid
+    const float cTilt = std::cos(radTilt);
+    const glm::vec3 dirBarrel =
+        glm::normalize(matBase * glm::vec3(cTilt * std::cos(radPan), cTilt * std::sin(radPan), std::sin(radTilt)));
+    const glm::vec3 posTo = PosVrAimHit(posPivot, dirBarrel, kSVrAim, palo);
+    ShowVrAim(pos, posTo);
+    if (static const bool s_f = std::getenv("SLY2N_TURRETPRINT") != nullptr; s_f)
+        std::printf("turret vr: t %.3f pan %.4f tilt %.4f ray %.3f %.3f %.3f aim %.3f %.3f %.3f to %.0f %.0f %.0f\n", g_clock.t,
+                    radPan, radTilt, dir.x, dir.y, dir.z, dirAim.x, dirAim.y, dirAim.z, posTo.x, posTo.y, posTo.z);
+    *pradPan = radPan;
+    *pradTilt = radTilt;
+    return true;
+}
+
 // orig: 0x00225BA0 (the aim: toward the target, or the pad's rates)
 void UpdateTurretAim(ALO* palo, TURRET& t)
 {
@@ -116,6 +229,16 @@ void UpdateTurretAim(ALO* palo, TURRET& t)
         t.radTilt = radTilt;
         t.dradPan = dPan;
         t.dradTilt = dTilt;
+        t.fVrHold = false;   // (PC, VR: vraim.h) not the controller's aim: the attach camera follows the mount again
+    }
+    else if (float radPan = 0.0f, radTilt = 0.0f; ppc && FTurretVrAngles(palo, t, *ppc, &radPan, &radTilt))
+    {
+        // (PC, VR: vraim.h) pointed with the controller: the angles straight from its ray, the sticks and the mouse
+        // unused, their inertia stopped so it neither fights the hand nor carries on after it
+        t.radPan = radPan;
+        t.radTilt = radTilt;
+        t.dradPan = 0.0f;
+        t.dradTilt = 0.0f;
     }
     else if (ppc)
     {
@@ -349,6 +472,8 @@ void PostLoadTurret(LO* plo)
 void SetTurretFocus(LO* plo, bool fOn)
 {
     if (!FTurret(plo)) return;
+    // (PC, VR: vraim.h) a new turn in it (or none): the attach camera's hold is taken afresh (FTurretVrAngles)
+    if (auto it = s_mpturret.find(plo); it != s_mpturret.end()) it->second.fVrHold = false;
     if (fOn) SetCmPolicy(&g_cm, 9, &g_cmpolicies.cpattach, plo, nullptr);
     else RevokeCmPolicy(&g_cm, 0xF, 9, &g_cmpolicies.cpattach, plo, nullptr);
 }
@@ -358,14 +483,17 @@ bool FTurretAttach(LO* plo, CMATTACH* patt)
 {
     TURRET* pt = Pturret(plo);
     if (!pt) return false;
-    LO* pm = pt->pmount ? pt->pmount : plo;
-    glm::mat4 m(1.0f);
-    if (FCidDerivedFrom(pm->Cid(), 0x30))
+    glm::mat4 m = MatTurretMount(plo, *pt, nullptr);
+    // (PC, VR: vraim.h) stereo, the controller aiming a gun the mount turns with: the mount's turn held in the base's
+    // frame (FTurretVrAngles), at the mount's own position, so the eyes (vr.cpp: the game camera's yaw x the head) stop
+    // turning with the gun and the controller's ray is the world's (the shots are the launcher's, not the camera's);
+    // the attach camera's smoothing eases the hold in and out
+    if (pt->fVrHold && vr::FEyes() && !vr::FFirstPersonEyes())
     {
-        ALO* pa = static_cast<ALO*>(pm);
-        if (PxfObj(pa)) m = PxfObj(pa)->matWorld;
+        glm::mat4 mHeld(MatTurretBase(static_cast<ALO*>(plo)) * pt->matVrMount);
+        mHeld[3] = m[3];
+        m = mHeld;
     }
-    else if (const LOX* plox = dynamic_cast<const LOX*>(pm)) m = plox->pxf ? plox->pxf->matWorld * plox->mat : plox->mat;
     patt->matMount = m;
     patt->fSmooth = pt->fSmooth != 0;
     patt->radFOV = pt->radFov;

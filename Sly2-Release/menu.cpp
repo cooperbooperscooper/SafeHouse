@@ -23,6 +23,7 @@
 #include "frontend.h"
 #include "gl.h"
 #include "hudwidget.h"
+#include "joy.h"
 #include "po.h"
 #include "ref.h"
 #include "savedata.h"
@@ -32,6 +33,7 @@
 #include "sw.h"
 #include "task.h"
 #include "transition.h"
+#include "vr.h"
 #include "../platform/controller_family.h"
 #include "../platform/platform.h"
 #include "../platform/system_settings.h"
@@ -78,6 +80,12 @@ enum NATIVEID : int
     NID_AdvancedControls = NID_Base + 0x1000, NID_ActionDevices, NID_ActionKeyboard, NID_ActionController, NID_ResetActions,
     NID_ActionGroupFirst = NID_Base + 0x2000,
     NID_ActionBindingFirst = NID_Base + 0x3000,
+    NID_VrRecalibrate = NID_Base + 0x5000,   // (PC, VR first person: vr.h RequestTPose)
+    // (0.1.2, VR first person) VR Settings...: its entry on the options page, then its rows in order (one id each:
+    // StrNative sees only the id), their values vr::ProfileCur()'s
+    NID_VrPage, NID_VrSlySize, NID_VrCaneSize, NID_VrCaneRotX, NID_VrCaneRotY, NID_VrCaneRotZ, NID_VrCaneOffX,
+    NID_VrCaneOffY, NID_VrCaneOffZ, NID_VrShowHands, NID_VrGadgetMenu, NID_VrPickpocket, NID_VrClimb, NID_VrGlide,
+    NID_VrReset,
 };
 constexpr uint32_t PFN_NativeDisplay = 0xFFFF0001;   // (a native select function)
 constexpr uint32_t PFN_NativeExit = 0xFFFF0002;
@@ -90,6 +98,12 @@ constexpr uint32_t PFN_NativeLanguage = 0xFFFF0008;      // (the title's languag
 constexpr uint32_t PFN_NativeInvertPage = 0xFFFF0009;    // (Invert Controls...)
 // the native pages' tables (their identity: the invert page's rows show the controller's icons)
 constexpr uint32_t VA_NativeInvertPage = 0xFFFF0109;
+constexpr uint32_t PFN_NativeVrRecalibrate = 0xFFFF0020;   // (VR: the T-pose asked for again; the menu stays)
+constexpr uint32_t PFN_NativeVrPage = 0xFFFF0021;          // (VR Settings...: its page, swapped in)
+constexpr uint32_t PFN_NativeVr = 0xFFFF0022;              // (a VR value: Cross the next, left / right a step)
+constexpr uint32_t PFN_NativeVrReset = 0xFFFF0023;         // (Reset VR Settings: Cross only)
+// (the VR page's identity: left / right step its rows; never a save-slot page's, KindDataAccess)
+constexpr uint32_t VA_NativeVrPage = 0xFFFF0121;
 constexpr uint32_t PFN_ActionDevices = 0xFFFF0010, PFN_ActionGroups = 0xFFFF0011,
                    PFN_ActionRows = 0xFFFF0012, PFN_ActionCapture = 0xFFFF0013;
 std::vector<std::string> ActionGroups()
@@ -388,11 +402,17 @@ void StartSlider()
 }
 
 // ------------------------------------------------------------ the options (0x1AF9C8 / 0x1AFB88 / 0x1AF6D0)
+// (VR Settings) a row's label and value, English only as the VR mod's other text (kept to about 26 characters: the
+// wheel wraps longer ones onto a second line)
+std::string StrVr(const char* szLabel, const char* szValue) { return StrToGameText(std::string(szLabel) + ": " + szValue); }
+
 // (the port's own options: their text in the game's language, porttext.h; English on the USA disc)
 std::string StrNative(int id)
 {
     char ach[96];
     auto onOff = [](PTX ptx, bool f) { return StrPortOnOff(ptx, f); };
+    // (VR Settings: the values in effect for the playing character, read again each draw)
+    const vrprofile::PROFILE& pr = vr::ProfileCur();
     switch (id)
     {
     case NID_Aspect:
@@ -420,6 +440,35 @@ std::string StrNative(int id)
     case NID_DrawDistance: return StrPortValue(PTX_DrawDistance, StrPortDecimal(g_display.drawDistance, 2) + "x");
     case NID_LongShadows: return onOff(PTX_LongShadows, g_display.fLongShadows);
     case NID_ExitToDesktop: return StrPort(PTX_ExitToDesktop);
+    // (the options page's entry: the left stick's icon, the VR controller's with VR prompts (promptglyph.cpp '+'), the
+    // d-pad's otherwise: its rows step with left / right)
+    case NID_VrPage: return "&2+&. " + StrToGameText("VR Settings...");
+    case NID_VrRecalibrate: return StrToGameText("Recalibrate (T-pose)");
+    case NID_VrSlySize:
+    case NID_VrCaneSize:
+        std::snprintf(ach, sizeof(ach), "%d%%", int(std::lround((id == NID_VrSlySize ? pr.slySize : pr.caneSize) * 100.0f)));
+        return StrVr(id == NID_VrSlySize ? "Sly Size" : "Cane Size", ach);
+    case NID_VrCaneRotX: case NID_VrCaneRotY: case NID_VrCaneRotZ:
+    {
+        // (the disc font's degree sign: Latin-1 0xB0 through StrToGameText; the wide text's font may lack it)
+        static const char* const asz[] = {"Cane Turn X", "Cane Turn Y", "Cane Turn Z"};
+        const int k = id - NID_VrCaneRotX;
+        std::snprintf(ach, sizeof(ach), "%d%s", int(std::lround(pr.degCane[k])), FWideText() ? " deg" : "\xC2\xB0");
+        return StrVr(asz[k], ach);
+    }
+    case NID_VrCaneOffX: case NID_VrCaneOffY: case NID_VrCaneOffZ:
+    {
+        static const char* const asz[] = {"Cane Shift X", "Cane Shift Y", "Cane Shift Z"};
+        const int k = id - NID_VrCaneOffX;
+        std::snprintf(ach, sizeof(ach), "%d cm", int(std::lround(pr.cmCane[k])));
+        return StrVr(asz[k], ach);
+    }
+    case NID_VrShowHands: return StrVr("Hands", pr.fShowHands ? "On" : "Off");
+    case NID_VrGadgetMenu: return StrVr("Gadget Menu", pr.nGadgetMenu == 0 ? "Wristwatch" : "Button");
+    case NID_VrPickpocket: return StrVr("Pickpocket", pr.fGrabSteal ? "Grab" : "Button");
+    case NID_VrClimb: return StrVr("Climbing", pr.fGrabClimb ? "Grab" : "Button");
+    case NID_VrGlide: return StrVr("Glider", pr.fGlideLines ? "Hand Lines" : "Stick");
+    case NID_VrReset: return StrToGameText("Reset VR Settings");
     case NID_DisplayPage: return StrPort(PTX_DisplayOptions);
     case NID_ControlsPage: return StrPort(PTX_ControlsAndPrompts);
     case NID_PromptStyle:
@@ -639,6 +688,114 @@ void CycleNative(MENUENT& e)
     ApplyDisplay();
 }
 
+// ------------------------------------------------------------ (0.1.2, VR first person) the VR Settings page
+// Its values live in Sly2VR.ini's [default] (vrprofile.h): each change is written there with vrprofile.cpp's own key and
+// format, and FSave resolves the profiles again, so it applies at once. A character's section ([sly], ...) with the same
+// key would still win (the shipped file has none of these keys there).
+
+// a value on the grid iMin..iMax steps of dg (a value off it, edited by hand, the nearest step first) a step on: held
+// at the ends, or round past them (fWrap)
+float GStepVr(float g, float dg, int iMin, int iMax, int n, bool fWrap)
+{
+    const int i0 = int(std::lround(g / dg));
+    // (a hand-edited value past the grid's ends steps from where it is, never pulled back across the grid)
+    if (!fWrap)
+    {
+        const int i = std::clamp(i0 + n, std::min(iMin, i0), std::max(iMax, i0));
+        return i == i0 ? g : float(i) * dg;   // (held at an end: unchanged, not snapped)
+    }
+    int i = std::clamp(i0, iMin, iMax) + n;
+    const int c = iMax - iMin + 1;
+    i = iMin + ((i - iMin) % c + c) % c;
+    return float(i) * dg;
+}
+
+// the section a VR row writes: the playing character's own when it sets that key itself (it would win over
+// [default]: the row would look stuck), else [default]
+const char* SzSecVr(const char* szKey)
+{
+    const char* szChar = vrprofile::SzChar(vr::CharacterCur());
+    return vr::CharacterCur() != vrprofile::Char::Default && vrprofile::FHasKey(szChar, szKey) ? szChar : "default";
+}
+
+bool FVrToggle(int id) { return id >= NID_VrShowHands && id <= NID_VrGlide; }
+
+// a row's value a step down (n -1) or up (1): the sizes and shifts held at their ends unless fWrap (Cross, the mouse's
+// only way: round to the start), the turns always round, the toggles flipped either way. 1: saved (and live), -1: the
+// file could not be written (nothing changed), 0: not a value row
+int StepVr(const MENUENT& e, int n, bool fWrap)
+{
+    const vrprofile::PROFILE& pr = vr::ProfileCur();
+    char ach[96];
+    auto size = [&](const char* szKey, float g, int iMin, int iMax) {   // (0.05 steps)
+        std::snprintf(ach, sizeof(ach), "%.2f", double(GStepVr(g, 0.05f, iMin, iMax, n, fWrap)));
+        return vrprofile::FSave(SzSecVr(szKey), szKey, ach);
+    };
+    auto vec = [&](const char* szKey, glm::vec3 v, int k, float dg, int iMin, int iMax, bool fRound) {   // ("x,y,z")
+        v[k] = GStepVr(v[k], dg, iMin, iMax, n, fRound);
+        std::snprintf(ach, sizeof(ach), "%g,%g,%g", double(v.x), double(v.y), double(v.z));
+        return vrprofile::FSave(SzSecVr(szKey), szKey, ach);
+    };
+    bool f = false;
+    switch (e.id)
+    {
+    case NID_VrSlySize: f = size("sly_size", pr.slySize, 14, 32); break;      // (0.70..1.60)
+    case NID_VrCaneSize: f = size("cane_size", pr.caneSize, 10, 26); break;   // (0.50..1.30)
+    case NID_VrCaneRotX: case NID_VrCaneRotY: case NID_VrCaneRotZ:            // (-90..90 degrees by 5, round)
+        f = vec("cane_rot", pr.degCane, e.id - NID_VrCaneRotX, 5.0f, -18, 18, true);
+        break;
+    case NID_VrCaneOffX: case NID_VrCaneOffY: case NID_VrCaneOffZ:            // (-10..10 cm by 1)
+        f = vec("cane_offset", pr.cmCane, e.id - NID_VrCaneOffX, 1.0f, -10, 10, fWrap);
+        break;
+    case NID_VrShowHands: f = vrprofile::FSave(SzSecVr("show_hands"), "show_hands", pr.fShowHands ? "0" : "1"); break;
+    case NID_VrGadgetMenu: f = vrprofile::FSave(SzSecVr("gadget_menu"), "gadget_menu", pr.nGadgetMenu == 0 ? "button" : "watch"); break;
+    case NID_VrPickpocket: f = vrprofile::FSave(SzSecVr("pickpocket"), "pickpocket", pr.fGrabSteal ? "button" : "grab"); break;
+    case NID_VrClimb: f = vrprofile::FSave(SzSecVr("climb"), "climb", pr.fGrabClimb ? "button" : "grab"); break;
+    case NID_VrGlide: f = vrprofile::FSave(SzSecVr("glide"), "glide", pr.fGlideLines ? "stick" : "lines"); break;
+    default: return 0;
+    }
+    return f ? 1 : -1;
+}
+
+// Reset VR Settings: the page's keys back to the built-in defaults (the buttons, the calibrations and the rest kept).
+// False: the file could not be written (stops at the first failure: the rest would fail too)
+bool FResetVr()
+{
+    const vrprofile::PROFILE d = vrprofile::ProfileBuiltInOf(vrprofile::Char::Default);
+    char achSly[32], achCane[32], achRot[96], achOff[96];
+    std::snprintf(achSly, sizeof(achSly), "%.2f", double(d.slySize));
+    std::snprintf(achCane, sizeof(achCane), "%.2f", double(d.caneSize));
+    std::snprintf(achRot, sizeof(achRot), "%g,%g,%g", double(d.degCane.x), double(d.degCane.y), double(d.degCane.z));
+    std::snprintf(achOff, sizeof(achOff), "%g,%g,%g", double(d.cmCane.x), double(d.cmCane.y), double(d.cmCane.z));
+    // ([default], and any character's own copy of the key, so none is left winning over the reset)
+    auto save = [](const char* szKey, const char* szVal) {
+        bool f = vrprofile::FSave("default", szKey, szVal);
+        for (vrprofile::Char c : {vrprofile::Char::Sly, vrprofile::Char::Bentley, vrprofile::Char::Murray})
+            if (f && vrprofile::FHasKey(vrprofile::SzChar(c), szKey)) f = vrprofile::FSave(vrprofile::SzChar(c), szKey, szVal);
+        return f;
+    };
+    return save("sly_size", achSly) && save("cane_size", achCane) && save("cane_rot", achRot) && save("cane_offset", achOff) &&
+           save("show_hands", d.fShowHands ? "1" : "0") && save("gadget_menu", d.nGadgetMenu == 0 ? "watch" : "button") &&
+           save("pickpocket", d.fGrabSteal ? "grab" : "button") && save("climb", d.fGrabClimb ? "grab" : "button") &&
+           save("glide", d.fGlideLines ? "lines" : "stick");
+}
+
+// a change's sound: the menu's row step (0x35, as the slot pages' L1 / R1), the error sound when it was not saved
+void PlayVrStep(int r)
+{
+    if (r > 0) PsndStartSound(0x35);
+    else if (r < 0) PsndStartSound(0x36);
+}
+
+// left / right held as NStepLeftRight holds its repeat (frontend.cpp: the d-pad, or the left stick past a quarter and
+// more across than up / down)
+bool FLeftRightHeld()
+{
+    const float x = g_joy.xLeft, y = g_joy.yLeft;
+    return (GrfbtnHeld() & 0xA000) || (std::sqrt(x * x + y * y) >= 0.25f && std::fabs(x) > std::fabs(y));
+}
+bool s_fVrStepped = false;   // (left / right stepped during the current push: a toggle flips once per push)
+
 // orig 0x001AF9C8 (an option entry shows the setting's value)
 void InitOptionText(MENUENT& e)
 {
@@ -839,6 +996,29 @@ std::vector<MENUENT> AentOptions()
     e.id = NID_ControlsPage;
     e.pfnSelect = PFN_NativeControlsPage;
     a.push_back(e);
+    if (vr::FFirstPerson())
+    {
+        // (VR first person: its settings and the T-pose again on a page of their own, at the title and in the pause menu)
+        e.id = NID_VrPage;
+        e.pfnSelect = PFN_NativeVrPage;
+        a.push_back(e);
+    }
+    return a;
+}
+
+// (0.1.2, VR first person) VR Settings...: the T-pose again, the values (left / right a step, Cross the next), the reset
+std::vector<MENUENT> AentVrSettings()
+{
+    std::vector<MENUENT> a;
+    auto add = [&](int id, uint32_t pfn) {
+        MENUENT e;
+        e.id = id;
+        e.pfnSelect = pfn;
+        a.push_back(e);
+    };
+    add(NID_VrRecalibrate, PFN_NativeVrRecalibrate);
+    for (int id = NID_VrSlySize; id <= NID_VrGlide; ++id) add(id, PFN_NativeVr);
+    add(NID_VrReset, PFN_NativeVrReset);
     return a;
 }
 
@@ -1093,6 +1273,13 @@ void SelectEntry(MENUENT& e)
         e.grf |= 2;
         break;
     case PFN_NativeDisplay: CycleNative(e); e.grf |= 2; break;
+    case PFN_NativeVrRecalibrate: vr::RequestTPose(); e.grf |= 2; break;
+    case PFN_NativeVrPage:
+        ReplacePage(AentVrSettings(), VA_NativeVrPage);   // (as the other native pages: Back returns to the options)
+        e.grf |= 2;
+        break;
+    case PFN_NativeVr: PlayVrStep(StepVr(e, 1, true)); e.grf |= 2; break;   // (Cross / Enter / a click: the next, round)
+    case PFN_NativeVrReset: PlayVrStep(FResetVr() ? 1 : -1); e.grf |= 2; break;
     case PFN_NativeControls: CycleControls(e); e.grf |= 2; break;
     case PFN_ActionDevices:
         ReplacePage(AentActionDevices(), 0);
@@ -1559,6 +1746,21 @@ void UpdateMenu(SW* psw)
             PsndStartSound(0x35);   // (the shop's row step, 0x1DC260)
             if (std::getenv("SLY2N_MENULOG")) std::printf("menu: slot page %d\n", s_ipageSlot + 1);
             return;
+        }
+        // (VR Settings) left / right: the selected value a step down / up (the d-pad, the left stick, the movement keys,
+        // the VR left thumbstick; NStepLeftRight repeats while held, a toggle flips once per push); only this page reads
+        // them, so every other page is as it was
+        if (pe->vaTab == VA_NativeVrPage && !pe->aent.empty())
+        {
+            if (!FLeftRightHeld()) s_fVrStepped = false;
+            if (const int n = NStepLeftRight())
+            {
+                const MENUENT& e = pe->aent[size_t(pe->isel)];
+                const bool fRepeat = s_fVrStepped;
+                s_fVrStepped = true;
+                if (e.pfnSelect == PFN_NativeVr && !(fRepeat && FVrToggle(e.id))) PlayVrStep(StepVr(e, n, false));
+                return;
+            }
         }
         if (!pe->aent.empty()) step(NStepUpDown());
         return;

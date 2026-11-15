@@ -35,6 +35,7 @@
 #include "step.h"
 #include "sw.h"
 #include "transition.h"
+#include "vraim.h"
 #include "worldaccess.h"
 #include "xf.h"
 #include "frame.h"
@@ -237,6 +238,7 @@ float s_radAim = 0.0f;               // the camera's heading: hers while aiming
 glm::vec3 s_posAim{0.0f};            // the crosshair's point (or the locked guard's centre)
 LO* s_ploAimLock = nullptr;          // the guard locked on (its world's)
 glm::vec2 s_ndcCross{0.0f};          // the crosshair on the picture (NDC)
+bool s_fVrAim = false;               // (PC, VR: vraim.h) UpdateAim aimed with the controller: its pointer, no crosshair
 float s_uAimCam = 0.0f;              // the aim camera's blend (0 .. 1)
 bool s_fShotAimed = false;           // the shot in its animation goes to s_posShotAim (thrown in the aim mode)
 glm::vec3 s_posShotAim{0.0f};
@@ -852,6 +854,24 @@ void UpdateAim(SW* psw, ALO* palo)
     s_posAim = g_cm.pos + dir * (glm::length(posPlayer - g_cm.pos) + c_sAimDist);
     s_ndcCross = glm::vec2(0.0f, c_yAimNdc);
     s_ploAimLock = nullptr;
+    // (PC, VR: vraim.h) aimed with the right controller (the headset's eyes drawn: the picture's crosshair is not where
+    // the player looks): its point where it meets a solid within as far (c_sAimDist beyond her; not her own: the ray
+    // starts at the hand), her heading from her to that point, the guards judged by the ray
+    glm::vec3 posVr(0.0f), dirVr(0.0f);
+    s_fVrAim = FVrAim(&posVr, &dirVr);
+    if (s_fVrAim)
+    {
+        s_posAim = PosVrAimHit(posVr, dirVr, glm::length(posPlayer - posVr) + c_sAimDist, palo);
+        // (her heading to where the ray lands, as the original's crosshair lies on hers: in stereo the hand is by the
+        // camera, behind her, and the ray's own yaw is off that by the parallax (her lock-on's tests below, her facing).
+        // The point within her muzzle's reach (80 ahead) or behind her along the ray: the ray's yaw; straight up or
+        // down: the camera's)
+        constexpr float c_sVrAimNear = 100.0f;
+        const glm::vec2 dirVrH(dirVr), dAim(s_posAim - posPlayer);
+        if (glm::length(dirVrH) > 1e-3f)
+            s_radAim = glm::length(dAim) > c_sVrAimNear && glm::dot(dAim, dirVrH) > 0.0f ? std::atan2(dAim.y, dAim.x)
+                                                                                        : std::atan2(dirVrH.y, dirVrH.x);
+    }
     const float rAspect = g_cm.yScreenRange > 0.0f ? g_cm.xScreenRange / g_cm.yScreenRange : 1.0f;
     const glm::vec2 dirAim(std::cos(s_radAim), std::sin(s_radAim));
     float gBest = 1e30f;
@@ -862,6 +882,16 @@ void UpdateAim(SW* psw, ALO* palo)
             const glm::vec3 pos = PosAloCenter(static_cast<ALO*>(plo));
             const glm::vec3 d = pos - posPlayer;
             if (glm::length(d) > c_sShotRange || glm::dot(glm::vec2(d), dirAim) <= 0.0f) continue;
+            if (s_fVrAim)
+            {
+                // (VR: the ray in place of the picture: within c_radAimLock of her aim across (to where the ray lands,
+                // above) and of the ray itself, the one nearest the ray)
+                const float rad = std::acos(std::clamp(glm::dot(glm::normalize(glm::vec2(d) + glm::vec2(1e-3f, 0.0f)), dirAim), -1.0f, 1.0f));
+                const float radRay = std::acos(std::clamp(glm::dot(glm::normalize(pos - posVr + glm::vec3(1e-3f, 0.0f, 0.0f)), dirVr), -1.0f, 1.0f));
+                if (rad > c_radAimLock || radRay > c_radAimLock) continue;
+                if (radRay < gBest) { gBest = radRay; s_ploAimLock = plo; s_posAim = pos + glm::vec3(0.0f, 0.0f, 30.0f); }
+                continue;
+            }
             const glm::vec3 sc = ConvertCmWorldToScreen(&g_cm, pos);
             if (sc.z <= 1.0f || std::fabs(sc.x) > 0.95f || std::fabs(sc.y) > 0.95f) continue;   // (on the picture)
             // (the angle off her aim, across: within c_radAimLock; then the nearest to the crosshair on the picture)
@@ -870,6 +900,8 @@ void UpdateAim(SW* psw, ALO* palo)
             const float g = rad + 0.25f * glm::length(glm::vec2(sc.x * rAspect, sc.y - c_yAimNdc));
             if (g < gBest) { gBest = g; s_ploAimLock = plo; s_posAim = pos + glm::vec3(0.0f, 0.0f, 30.0f); s_ndcCross = glm::vec2(sc.x, sc.y); }
         }
+    // (VR: the pointer each step she aims, to where the shot goes: the solid, or the guard locked on)
+    if (s_fVrAim) ShowVrAim(posVr, s_posAim);
 }
 
 // The shot: a free projectile of hers (a clone of her world's 12736) thrown by her launcher 13048 from her muzzle
@@ -1487,7 +1519,8 @@ glm::vec3 PcCarmStrafeVel(float uJoy, float radJoy, bool fR1)
     return -glm::vec3(std::cos(rad) * s, std::sin(rad) * s, 0.0f);
 }
 
-bool FPcCarmCrosshair() { return FAimLive() && s_pup.ploPlayer && s_pup.fPlayerDrawn; }
+// (PC, VR: vraim.h: aimed with the controller, its pointer shows the aim: the picture's crosshair is not drawn)
+bool FPcCarmCrosshair() { return FAimLive() && !s_fVrAim && s_pup.ploPlayer && s_pup.fPlayerDrawn; }
 
 void DrawPcCarmCrosshair()
 {

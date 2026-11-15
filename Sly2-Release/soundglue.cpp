@@ -77,7 +77,8 @@ bool FListener(glm::vec3* ppos, glm::mat3* pmat)
 {
     LO* player = g_psw ? PloPoCurrent(g_psw) : nullptr;
     *ppos = player ? PosAloCenter(static_cast<ALO*>(player)) : g_cm.pos;
-    *pmat = glm::transpose(g_cm.mat);  // (mat * d = (forward . d, left . d, up . d))
+    // (mat * d = (forward . d, left . d, up . d)); (PC, VR: cm.h CmView) with a headset, panned by your head
+    *pmat = glm::transpose(CmView().mat);
     return true;
 }
 

@@ -569,6 +569,14 @@ void SetActorAbilitySlot(ACTOR* pa, int i, int id)
     UpdateAbilityDisplay(pa);  // vt slot 105
 }
 
+// (PC, VR's wristwatch: vrinteract.cpp) the slot's cached id, the one UpdateActorAbilities uses (the progress "apukCur"
+// is read into it only when the world changes)
+int IdActorAbilitySlot(ACTOR* pa, int i)
+{
+    if (!pa || static_cast<unsigned>(i) >= 3) return -1;
+    return AbOf(pa).a[i].id;
+}
+
 // orig 0x0014C258 (from the transition 0x20E890 on a reload of the same world with the request's flag 0x40)
 void RemoveMegaJump(SW* psw)
 {

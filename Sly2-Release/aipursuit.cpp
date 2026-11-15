@@ -143,7 +143,7 @@ void RemoveTargetrecGuard(TARGETREC* pt, GUARD* pg)
 // orig: 0x0020A690: the record's reference heading (mode 0: the camera's, 1: the target's facing)
 float RadTargetrec(const TARGETREC* pt)
 {
-    if (pt->nMode == 0) return std::atan2(g_cm.mat[0][1], g_cm.mat[0][0]);  // (CM +0x60 / +0x64)
+    if (pt->nMode == 0) return std::atan2(CmView().mat[0][1], CmView().mat[0][0]);  // (CM +0x60 / +0x64)
     if (pt->nMode == 1 && pt->plo)
     {
         // (vt slot 31 twice: the target's object matrix's first row)
@@ -168,7 +168,7 @@ bool FTargetrecAllows(const TARGETREC* pt, GUARD* pg)
     {
         if (pg->gF34 != 0.0f) return true;
         // the guard on the screen (0x14F850 with the camera's planes, radius 0)
-        if (!FInsideCmPlanes(&g_cm, posG - g_cm.pos, 0.0f)) return false;
+        if (!FInsideCmPlanes(&CmView(), posG - CmView().pos, 0.0f)) return false;
     }
     // the target -> guard heading (0x11EF08) within +0x18 of the record's heading (0x20A690: the camera's / the
     // object's facing)

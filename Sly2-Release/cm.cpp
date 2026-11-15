@@ -10,6 +10,7 @@
 #include "bsp.h"
 #include "dzg.h"
 #include "so.h"
+#include "vr.h"
 
 #include <algorithm>
 #include <cmath>
@@ -679,6 +680,39 @@ void JoltCm(CM* pcm, int n)
     pcm->nJolt = n;
     if (static const bool trace = std::getenv("SLY2N_CMJOLTTRACE") != nullptr; trace)
         std::printf("cmjolt start t %.9g kind %d\n", pcm->tJolt, n);
+}
+
+const CM& CmView()
+{
+    glm::vec3 pos;
+    glm::mat3 matRows;
+    float tanX = 1.0f, tanY = 1.0f;
+    uint64_t serial = 0;
+    if (!vr::FHeadView(&pos, &matRows, &tanX, &tanY, &serial)) return g_cm;
+    // (made again once a step, or when a new head view was drawn: g_cm's other fields move with the steps)
+    extern int g_frameJoy;   // (joy.cpp: the step)
+    static CM s_cm;
+    static int s_frame = -1;
+    static uint64_t s_serial = ~uint64_t(0);
+    if (s_frame == g_frameJoy && s_serial == serial) return s_cm;
+    s_frame = g_frameJoy;
+    s_serial = serial;
+    s_cm = g_cm;
+    s_cm.pos = pos;
+    s_cm.mat = matRows;
+    s_cm.xScreenRange = tanX;
+    s_cm.yScreenRange = tanY;
+    s_cm.rAspect = tanX / tanY;
+    // (UpdateCmMat4's planes, for the head)
+    BuildFrustrum(s_cm.mat, s_cm.xScreenRange, s_cm.yScreenRange, s_cm.anormalFrustrum.data());
+    for (int i = 0; i < 3; ++i)
+        s_cm.anormalFrustrumTranspose[i] = glm::vec4(s_cm.anormalFrustrum[0][i], s_cm.anormalFrustrum[1][i],
+                                                     s_cm.anormalFrustrum[2][i], s_cm.anormalFrustrum[3][i]);
+    BuildFrustrum(s_cm.mat, s_cm.xScreenRange * F32(0x40FDC28F), s_cm.yScreenRange * F32(0x4190CCCD), s_cm.anormalFrustrumWide.data());
+    for (int i = 0; i < 3; ++i)
+        s_cm.anormalFrustrumTransposeWide[i] = glm::vec4(s_cm.anormalFrustrumWide[0][i], s_cm.anormalFrustrumWide[1][i],
+                                                         s_cm.anormalFrustrumWide[2][i], s_cm.anormalFrustrumWide[3][i]);
+    return s_cm;
 }
 
 // orig: 0x0014F768

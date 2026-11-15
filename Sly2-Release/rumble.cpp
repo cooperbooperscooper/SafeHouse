@@ -5,14 +5,17 @@
 #include "joy.h"
 #include "ref.h"
 #include "savedata.h"
+#include "vr.h"
 
 #include <GLFW/glfw3.h>
 #include "pad_rumble.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 extern int g_frameJoy;
@@ -77,11 +80,32 @@ void SendMotors(uint8_t bSmall, uint8_t bBig)
 #endif
 }
 
+// (PC, VR: vr.h) the motors on both motion controllers too, also with no pad in use (SendMotors stops at s_jid < 0): the
+// big motor's strength, the small one (on / off) as 0.7; each write for its pattern step's length (+0.02 s, so the steps
+// join: a pattern's next write follows within that), 0, 0 the stop (sent once: SetRumbleRums repeats it four frames)
+void SendVrMotors(const RUMBLE* prumble, uint8_t bSmall, uint8_t bBig)
+{
+    static bool s_fOn = false;
+    if (!vr::Active()) return;
+    const float g = std::max(float(bBig) / 255.0f, bSmall ? 0.7f : 0.0f);
+    if (g <= 0.0f)
+    {
+        if (std::exchange(s_fOn, false))
+            for (int k = 0; k < 2; ++k) vr::Pulse(k, 0.0f, 0.0f);
+        return;
+    }
+    float dt = 0.05f;
+    if (prumble && prumble->prumpat && prumble->irumins >= 0 && prumble->irumins < prumble->prumpat->crumins)
+        dt = prumble->prumpat->arumins[prumble->irumins].dt;
+    dt = std::clamp(dt, 0.01f, 0.5f) + 0.02f;
+    s_fOn = true;
+    for (int k = 0; k < 2; ++k) vr::Pulse(k, g, dt);
+}
+
 // orig 0x243870 scePadSetActDirect(port, slot, ab): ab[0] the small motor, ab[1] the big one (the align {0, 1} set by
 // UpdateJoy's 0x243930 when the DualShock 2 came up)
 void SetActDirect(RUMBLE* prumble, uint8_t bSmall, uint8_t bBig)
 {
-    (void)prumble;
     if (s_pawrite)
     {
         s_pawrite->push_back({g_frameJoy, {bSmall, bBig}});
@@ -89,6 +113,7 @@ void SetActDirect(RUMBLE* prumble, uint8_t bSmall, uint8_t bBig)
     }
     if (FLog())
         std::fprintf(stderr, "rumble: frame %d tReal %.4f act small %d big %d\n", g_frameJoy, g_clock.tReal, bSmall, bBig);
+    SendVrMotors(prumble, bSmall, bBig);
     SendMotors(bSmall, bBig);
 }
 }  // namespace

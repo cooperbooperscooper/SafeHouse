@@ -3527,27 +3527,40 @@ void RenderRenderTargets(const SCENE& scene, const RENDEROPTS& opts)
 }
 }  // namespace
 
-void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
+void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts, const VIEWOVERRIDE* pview)
 {
-    g_renderstats.cdraw = g_renderstats.cpass = g_renderstats.ccel = 0;
-    g_renderstats.cbatch = g_renderstats.cculled = g_renderstats.cmrd = 0;
-    s_ring.BeginFrame();
+    // (VR: the second eye shares the first eye's frame: the ring, the stats and the render targets are not begun again)
+    if (!pview || !pview->fSkipTargets)
+    {
+        g_renderstats.cdraw = g_renderstats.cpass = g_renderstats.ccel = 0;
+        g_renderstats.cbatch = g_renderstats.cculled = g_renderstats.cmrd = 0;
+        s_ring.BeginFrame();
 #ifdef __SWITCH__
-    TakeStreamedTextureMods();
+        TakeStreamedTextureMods();
 #endif
-    // The render targets first (their globsets, their cameras), so this frame's screen quads show them.
-    RenderRenderTargets(scene, opts);
+        // The render targets first (their globsets, their cameras), so this frame's screen quads show them.
+        RenderRenderTargets(scene, opts);
+    }
     PASSVIEW pv;
     pv.aspect = float(g_gl.renderWidth) / float(g_gl.renderHeight);
-    // The projection for the picture's aspect mode (display.h: Hor+, the PS2 anamorphic 4:3, Vert- 16:9).
-    const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
-    CAMERA camDisplay = cam;
-    camDisplay.fovY = glm::degrees(proj.radFovY);
-    pv.matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+    if (pview)
+    {
+        pv.matWorldToClip = pview->matWorldToClip;
+        pv.pos = pview->pos;
+        pv.dir = pview->dir;
+    }
+    else
+    {
+        // The projection for the picture's aspect mode (display.h: Hor+, the PS2 anamorphic 4:3, Vert- 16:9).
+        const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
+        CAMERA camDisplay = cam;
+        camDisplay.fovY = glm::degrees(proj.radFovY);
+        pv.matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+        pv.pos = cam.pos;
+        pv.dir = cam.Dir();
+    }
     pv.rMRDAdjust = cam.rMRDAdjust;
     pv.grfChannels = cam.grfChannels;
-    pv.pos = cam.pos;
-    pv.dir = cam.Dir();
     pv.fbo = g_gl.FboScene();
     pv.dx = g_gl.renderWidth;
     pv.dy = g_gl.renderHeight;
@@ -3555,19 +3568,28 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     RenderPass(scene, pv, opts);
 }
 
-void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
+void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts, const VIEWOVERRIDE* pview)
 {
     if (std::none_of(scene.aglobset.begin(), scene.aglobset.end(), [](const SCENEGLOBSET& s) { return s.fForeground && s.irtgt < 0; })) return;
     PASSVIEW pv;
     pv.aspect = float(g_gl.renderWidth) / float(g_gl.renderHeight);
-    const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
-    CAMERA camDisplay = cam;
-    camDisplay.fovY = glm::degrees(proj.radFovY);
-    pv.matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+    if (pview)
+    {
+        pv.matWorldToClip = pview->matWorldToClip;
+        pv.pos = pview->pos;
+        pv.dir = pview->dir;
+    }
+    else
+    {
+        const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
+        CAMERA camDisplay = cam;
+        camDisplay.fovY = glm::degrees(proj.radFovY);
+        pv.matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+        pv.pos = cam.pos;
+        pv.dir = cam.Dir();
+    }
     pv.rMRDAdjust = cam.rMRDAdjust;
     pv.grfChannels = cam.grfChannels;
-    pv.pos = cam.pos;
-    pv.dir = cam.Dir();
     pv.fbo = g_gl.FboScene();
     pv.dx = g_gl.renderWidth;
     pv.dy = g_gl.renderHeight;

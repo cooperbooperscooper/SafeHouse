@@ -20,6 +20,12 @@
 #include "spiop.h"
 #include "asega.h"
 #include "frameinterp.h"
+#include "menu.h"
+#include <utility>
+#include "vr.h"
+#include "vrbody.h"
+#include "vrui.h"
+#include "vrinteract.h"
 #include "splicetypes.h"
 #include <unordered_set>
 #include "objmethod.h"
@@ -406,6 +412,92 @@ struct INITFOREGROUND
     }
 } s_initforeground;   // each owned target's own lights (0x1A4AD8 from the owner's +0x104 / +0x108)
 
+// (PC, VR first person) The playing character's centre at the last two steps, so the eye moves in the same
+// interpolated time as the scene (frameinterp.h); forgotten wherever the steps' snapshots are.
+struct VREYESTEP
+{
+    glm::vec3 posPrev{0.0f}, posCur{0.0f};
+    bool fPrev = false, fCur = false;
+    const ALO* palo = nullptr;
+};
+VREYESTEP s_vreyestep;
+void NoteVrEyeStep(SW* psw)
+{
+    if (!vr::Active()) return;
+    LO* plo = psw ? PloPoCurrent(psw) : nullptr;
+    ALO* palo = plo && FCidDerivedFrom(plo->Cid(), 0x30) ? static_cast<ALO*>(plo) : nullptr;
+    s_vreyestep.fPrev = s_vreyestep.fCur && palo == s_vreyestep.palo;
+    s_vreyestep.posPrev = s_vreyestep.posCur;
+    s_vreyestep.fCur = palo != nullptr;
+    s_vreyestep.palo = palo;
+    if (palo) s_vreyestep.posCur = PosAloCenter(palo);
+}
+// (PC, VR) The game's camera is cinematic (first person gives way to the game camera's view): nothing drives it, a
+// camera object or a script's camera block of any length, a binocucom talk, the recon view from another object, a
+// dialogue scene, or the cut scenes' box (the letterbox: a script's pause, the vault dial, the dance), but not a
+// level's exit. (g_cm.fCut is no use here: UpdateCm clears it in the step that sets it.)
+bool FVrCinematicRaw(SW* psw)
+{
+    const CMPOLICIES& cp = g_cmpolicies;
+    const CPLCY* ptop = g_cm.ccpr > 0 ? g_cm.acpr[0].pcplcy : nullptr;
+    LO* ppo = psw ? PloPoCurrent(psw) : nullptr;
+    if (!ptop || ptop == &cp.cpdefault) return true;
+    if (ptop == &cp.cplookat || ptop == &cp.cptimed || ptop == &cp.cpfree) return true;
+    if (ptop == &cp.cprecon && g_cm.acpr[0].psoFocus != ppo) return true;
+    if (FCutsceneActive()) return true;
+    if (g_gamepause.c80 > 0 && !(psw && psw->ploExitPending)) return true;
+    return false;
+}
+
+// (PC, VR) A cut of the game's camera, found step by step: the pose (or the policy on top of the stack) jumped more
+// than it moves in a step; the draw blinks the eyes (vr.h BlinkView) and the frame interpolation starts afresh.
+struct VRCAMSTEP
+{
+    bool f = false;
+    glm::vec3 pos{0.0f}, dir{1.0f, 0.0f, 0.0f};
+    float fov = 1.0f;
+    const CPLCY* pcplcy = nullptr;
+    const void* pv = nullptr;
+    const LO* pso = nullptr;
+    uint32_t serial = 0;
+};
+VRCAMSTEP s_vrcam;
+bool s_fVrCut = false;
+// true: this step cut
+bool FNoteVrCamStep(SW* psw)
+{
+    if (!vr::Active()) return false;
+    const bool fStack = g_cm.ccpr > 0;
+    VRCAMSTEP c;
+    c.f = true;
+    c.pos = g_cm.pos;
+    c.dir = g_cm.mat[0];
+    c.fov = g_cm.radFOV;
+    c.pcplcy = fStack ? g_cm.acpr[0].pcplcy : nullptr;
+    c.pv = fStack ? g_cm.acpr[0].pv : nullptr;
+    c.pso = fStack ? g_cm.acpr[0].psoFocus : nullptr;
+    c.serial = psw ? uint32_t(psw->serial) : 0u;
+    bool fCut = false;
+    if (s_vrcam.f)
+    {
+        const bool fTop = c.pcplcy != s_vrcam.pcplcy || c.pv != s_vrcam.pv || c.pso != s_vrcam.pso;
+        const float sMax = fTop ? 30.0f : 150.0f, cosMax = fTop ? 0.996f : 0.94f;   // (about 5 / 20 degrees a step)
+        const float rFov = c.fov / std::max(s_vrcam.fov, 1e-3f);
+        fCut = c.serial != s_vrcam.serial || glm::distance(c.pos, s_vrcam.pos) > sMax || glm::dot(c.dir, s_vrcam.dir) < cosMax ||
+               rFov > 1.25f || rFov < 0.8f;
+    }
+    s_vrcam = c;
+    if (fCut) s_fVrCut = true;
+    return fCut;
+}
+
+void ForgetVrEyeStep()
+{
+    // (both steps forgotten, as ResetStepSnapshots: the next step's eye is drawn where it is, the one after interpolates)
+    s_vreyestep.fPrev = s_vreyestep.fCur = false;
+    s_vreyestep.palo = nullptr;
+}
+
 void ApplyRtgtOwners(SCENE& scene, const std::vector<ALO*>& apalo)
 {
     for (SCENEGLOBSET& sgs : scene.aglobset) sgs.irtgt = -1;
@@ -641,6 +733,7 @@ int RunGame(const GAMEOPTS& go)
         // the world's lights natively (lightsw.h: the lights' records from their options and transforms)
         if (UpdateWorldLightsFromSw(psw.get()) > 0) ApplyLighting(scene, WorldLights());
         else ApproximateBakeLighting(scene);
+        if (fWindow) vr::PreInit();   // (vr.h: Linux asks GLFW for X11 when VR is asked for)
         if (!g_gl.FInit(go.width, go.height, fWindow, "Sly2-Release", error))
         {
             std::fprintf(stderr, "%s\n", error.c_str());
@@ -652,6 +745,7 @@ int RunGame(const GAMEOPTS& go)
             // the PC options (display.h; <user-dir>/Saves/system_settings.dat, loaded by main)
             InstallDisplayCallbacks(g_gl.window);
             ApplyDisplaySettings(g_gl.window);
+            vr::Start(g_gl.window);   // (vr.h: only with SLY2N_VR set; the game stays flat otherwise or on failure)
         }
     }
 #ifdef __SWITCH__
@@ -719,7 +813,7 @@ int RunGame(const GAMEOPTS& go)
             psw = PswUpdateTransition(std::move(psw));
             scene = SCENE{};
             apalo.clear();
-            ResetStepSnapshots();
+            ResetStepSnapshots(), ForgetVrEyeStep();
             (void)FPcCharTakeSceneRebuild();
             if (fDraws)
             {
@@ -736,7 +830,7 @@ int RunGame(const GAMEOPTS& go)
             InvalidateSceneLookups();
             scene = SCENE{};
             apalo.clear();
-            ResetStepSnapshots();
+            ResetStepSnapshots(), ForgetVrEyeStep();
             CBuildSceneFromSw(psw.get(), scene, &apalo);
             ApproximateBakeLighting(scene);
             BuildSceneGpu(scene);
@@ -772,6 +866,8 @@ int RunGame(const GAMEOPTS& go)
         // (a cutscene's skip runs the game alone: skipcut.h)
         UpdateJoy(&g_joy, fWindow && !fFreeCam && !FSkipCutFastForward() ? g_gl.window : nullptr, frame, go.apress);
         JoyBeginFrame();   // (the presses taken this frame: the scripts' (SCPT 0x42) before the HUD's and the menus')
+        // (VR first person, vrinteract.h: the hands' grabs acted on, at step time: pockets, climbing, the watch's gadget)
+        if (vr::Active()) VrStepInteract(psw.get());
         // (debugmenu.h, Debug keys only) the debug menu open: the game frozen, the step is the menu's
         if (FDebugMenuOpen())
         {
@@ -1688,13 +1784,14 @@ int RunGame(const GAMEOPTS& go)
         DebugHitHideHolders(psw.get());   // (debug: hide.h)   // orig 0x18A238: the draw's own placement (state 3's cane on the hook), each step as drawn
         };
         {
-            const bool fWant = s_szFrameInterp ? true : fWindow && !go.fFixedDt && g_display.frameRate > 60;
+            // (VR: the headset's 72..120 Hz displays the steps' interpolation, as a fast monitor does)
+            const bool fWant = s_szFrameInterp ? true : fWindow && !go.fFixedDt && (g_display.frameRate > 60 || vr::Active());
             if (fWant != accum.fActive)
             {
                 accum = FRAMEACCUM{};
                 accum.fActive = fWant;
                 accum.fpsVirtual = s_szFrameInterp ? std::atof(s_szFrameInterp) : 0.0;
-                ResetStepSnapshots();
+                ResetStepSnapshots(), ForgetVrEyeStep();
             }
         }
         const int cstep = accum.fActive ? accum.Steps(now() / 1000.0) : 1;
@@ -1716,7 +1813,11 @@ int RunGame(const GAMEOPTS& go)
                 static const bool s_fDrawAllStep = std::getenv("SLY2N_DRAWALL") != nullptr;
                 if (CAddNewAlosToScene(psw.get(), scene, &apalo) > 0) BuildSceneGpu(scene);
                 UpdateSceneFromSw(scene, apalo, s_fDrawAllStep ? nullptr : psw.get());
-                SnapshotStep(scene, CameraFromCm(g_cm));
+                SnapshotStep(scene, CameraFromCm(g_cm)), NoteVrEyeStep(psw.get());
+                // (VR: a camera cut is not interpolated across: the snapshots start again from this step; not for a cut
+                // of the game camera nobody sees, in first person at the player's head: that would only judder)
+                if (FNoteVrCamStep(psw.get()) && !(vr::FFirstPersonEyes() && !FVrCinematicRaw(psw.get())))
+                    ResetStepSnapshots(), ForgetVrEyeStep(), SnapshotStep(scene, CameraFromCm(g_cm)), NoteVrEyeStep(psw.get());
             }
         }
         // (skipcut.h) a skipped cutscene: the game runs on to its natural end, many steps a frame (up to ~25 ms)
@@ -1763,10 +1864,13 @@ int RunGame(const GAMEOPTS& go)
                 accum.tLast = now() / 1000.0;   // (the skip's real time is no gameplay time to catch up)
             if (fSkipped && accum.fActive && fDraws)
             {
-                ResetStepSnapshots();
+                ResetStepSnapshots(), ForgetVrEyeStep();
                 if (CAddNewAlosToScene(psw.get(), scene, &apalo) > 0) BuildSceneGpu(scene);
                 UpdateSceneFromSw(scene, apalo, psw.get());
-                SnapshotStep(scene, CameraFromCm(g_cm));
+                SnapshotStep(scene, CameraFromCm(g_cm)), NoteVrEyeStep(psw.get());
+                // (VR: a camera cut is not interpolated across: the snapshots start again from this step)
+                if (FNoteVrCamStep(psw.get()))
+                    ResetStepSnapshots(), ForgetVrEyeStep(), SnapshotStep(scene, CameraFromCm(g_cm)), NoteVrEyeStep(psw.get());
             }
         }
         if (fWindow)
@@ -1917,8 +2021,11 @@ int RunGame(const GAMEOPTS& go)
                 const uint32_t serial = psw->serial;
                 for (auto it = s_mpploForeground.begin(); it != s_mpploForeground.end();)
                     it = it->second != serial ? s_mpploForeground.erase(it) : std::next(it);
+                // (VR first person: none, so a prize card's close-up of the player never lands on the HUD panel; the
+                // body is then the hands' to draw, as always)
                 for (size_t k = 0; k < scene.aglobset.size() && k < apalo.size(); ++k)
-                    scene.aglobset[k].fForeground = fNoBig && !s_mpploForeground.empty() && s_mpploForeground.count(apalo[k]);
+                    scene.aglobset[k].fForeground = fNoBig && !vr::FFirstPersonEyes() && !s_mpploForeground.empty() &&
+                                                    s_mpploForeground.count(apalo[k]);
             }
             // the lights move with their objects; the forward-lit groups take their light context again (0x1A4478)
             if (fRelight) UpdateWorldLightsFromSw(psw.get());
@@ -1982,16 +2089,123 @@ int RunGame(const GAMEOPTS& go)
                 }
                 glBeginQuery(GL_TIME_ELAPSED, s_aqGpu[s_iqGpu % 4]);
             }
+            // (vr.h: waits for the headset's frame timing and locates the eyes; false: draw for the window only)
+            const bool fVrFrame = fWindow && vr::BeginFrame(g_gl.window);
+            const bool fVrStereo = fVrFrame && vr::FEyes();
+            // (VR first person: the eyes at the player's head, the player drawn as its two hands on the controllers
+            // (vrbody.h: no body tracking), Sly's cane in the right one; the scene's entries changed here are put back
+            // after the draw, so the steps' snapshots never see them)
+            CAMERA camEye = cam;
+            VRHANDSSAVE vrhands;
+            // (VR: vrprofile.h) who plays picks the settings (Sly2VR.ini's [sly] / [bentley] / [murray]); its centre's
+            // height above its floor gives the height calibration's scale
+            LO* ploPlayerVr = vr::Active() && psw ? PloPoCurrent(psw.get()) : nullptr;
+            ALO* paloPlayerVr = ploPlayerVr && FCidDerivedFrom(ploPlayerVr->Cid(), 0x30) ? static_cast<ALO*>(ploPlayerVr) : nullptr;
+            SLY* pslyVr = PslyGlobal();
+            BENTLEY* pbentleyVr = ploPlayerVr ? PbentleyFromLo(ploPlayerVr) : nullptr;
+            if (vr::Active())
+            {
+                const vrprofile::Char ch = pslyVr && paloPlayerVr && pslyVr->palo == paloPlayerVr ? vrprofile::Char::Sly
+                                          : pbentleyVr                                            ? vrprofile::Char::Bentley
+                                          : ploPlayerVr && PmurrayFromLo(ploPlayerVr)             ? vrprofile::Char::Murray
+                                                                                                  : vrprofile::Char::Default;
+                float sCenterAboveFloor = 0.0f;
+                if (STEP* pstep = paloPlayerVr ? PstepFromLo(paloPlayerVr) : nullptr)
+                {
+                    const float zCenter = PosAloCenter(paloPlayerVr).z;
+                    sCenterAboveFloor = pstep->pxpFloor ? zCenter - pstep->posFloor.z : -pstep->vecBase.z;
+                }
+                // (first person's eyes go to the game camera while it is cinematic (held 0.3 s past it, and while a talk,
+                // a menu or a skip holds the scene), or while the player is no gang member (a turret, the vault, the
+                // hacking ship, the RC chopper)); a switch of view, or a cut seen through the game camera, blinks
+                static bool s_fCine = false, s_fGameCamPrev = false;
+                static double s_tCineOff = 0.0;
+                const bool fHoldCine = s_fCine && (g_gamepause.c7C > 0 || FMenuShown() || FSkipCutFastForward());
+                const bool fRawCine = FVrCinematicRaw(psw.get());
+                if (fRawCine || fHoldCine) s_fCine = true, s_tCineOff = now() + 300.0;
+                else if (now() >= s_tCineOff) s_fCine = false;
+                const bool fGang = ch != vrprofile::Char::Default;
+                const bool fGameCam = s_fCine || !fGang || !paloPlayerVr;
+                vr::SetFirstPersonEyes(vr::FFirstPerson() && !fGameCam);
+                const bool fCut = std::exchange(s_fVrCut, false);
+                if (vr::FFirstPerson() && fGameCam != s_fGameCamPrev) vr::BlinkView();
+                else if (fCut && vr::FEyes() && !vr::FFirstPersonEyes()) vr::BlinkView();
+                // (first person: while only the hold keeps the game camera, between two shots or as a scene ends, the
+                // eyes stay dark: the follow camera behind the player is never shown; the switch back fades in)
+                if (vr::FFirstPerson() && s_fCine && !fRawCine && !fHoldCine && fGang && paloPlayerVr) vr::BlinkView();
+                s_fGameCamPrev = fGameCam;
+                // (the guided calibration waits for first person at the player's head: no scene, no menu)
+                const bool fCanCalibrate = vr::FFirstPersonEyes() && !FPcMenuMode();
+                vr::SetCharacter(ch, sCenterAboveFloor, fCanCalibrate);
+                // (the T-pose: asked for once the logo movie is over and the title is up)
+                vr::NoteTitle(FTitleShown() && !g_fMoviePlaying);
+            }
+            // (the animated overlay's and the binocucom photo's capture frames are drawn flat, without the VR hands:
+            // they capture the normal picture with its HUD)
+            const bool fVrFlatCapture = FAnimatedOverlayNeedsFrame() || FPhotoCapturePending();
+            if (fVrStereo && vr::FFirstPersonEyes() && paloPlayerVr && !fVrFlatCapture)
+            {
+                ALO* paloPlayer = paloPlayerVr;
+                const glm::vec3 dirCam = cam.Dir();
+                camEye.fMat = false;
+                camEye.pitch = 0.0f;
+                camEye.yaw = glm::degrees(vr::RadBodyYaw(std::atan2(dirCam.y, dirCam.x)));
+                // (the eye in the scene's interpolated time; the latest place across a jump, as InterpolateSteps)
+                glm::vec3 posC = PosAloCenter(paloPlayer);
+                if (accum.fActive && s_vreyestep.fPrev && s_vreyestep.palo == paloPlayer && glm::distance(s_vreyestep.posPrev, posC) <= 400.0f)
+                    posC = s_vreyestep.posPrev + (posC - s_vreyestep.posPrev) * std::clamp(accum.U(), 0.0f, 1.0f);
+                camEye.pos = posC + glm::vec3(0.0f, 0.0f, vr::SEyeHeight());
+                LO* ploHeld = pslyVr && pslyVr->palo == paloPlayer ? pslyVr->plo19A0 : nullptr;
+                const vrprofile::PROFILE& pr = vr::ProfileCur();
+                VRHANDSCFG cfg;
+                cfg.iboneL = pr.iboneL;
+                cfg.iboneR = pr.iboneR;
+                cfg.fForearm = pr.fForearm;
+                cfg.pxfSeedR = pbentleyVr ? pbentleyVr->pxf10B8 : nullptr;   // (Bentley: his swing's hand)
+                cfg.serialWorld = psw ? uint32_t(psw->serial) : 0u;
+                cfg.fShowHands = pr.fShowHands || vr::FHandCalibrating();   // (the calibration shows them to match)
+                cfg.ploCanePoint = ploHeld ? pslyVr->plo19A4 : nullptr;       // (the cane's hook point: vrbody MeasureCane)
+                ApplyVrHands(scene, apalo, paloPlayer, ploHeld, camEye, cfg, &vrhands);
+            }
+            VIEWOVERRIDE aeye[2];
+            const bool fVrEyes = fVrStereo && !fVrFlatCapture && vr::EyeView(0, camEye, &aeye[0]) &&
+                                 vr::EyeView(1, camEye, &aeye[1]);
+            // (no eyes this frame, e.g. the views not located yet: the flat picture from the game camera has the body
+            // back and the cane in its hand)
+            if (!fVrEyes) RestoreVrHands(scene, &vrhands);
             if (FAnimatedOverlayDrawNormal()) {
-                RenderScene(scene, cam, opts);
+                if (fVrEyes)
+                {
+                    // (VR stereo) the world once per eye into the scene target, each copied into its eye's image;
+                    // then the HUD alone over a transparent target for the floating panel (the window shows that)
+                    for (int k = 0; k < 2; ++k)
+                    {
+                        RenderScene(scene, cam, opts, &aeye[k]);
+                        vr::DrawAimPointer(aeye[k]);   // (vr.h: the controller's pointer while something aims with it)
+                        vr::DrawEyeFade();             // (vr.h: the blink of a cut or a switch of view)
+                        vr::SubmitEye(k);
+                    }
+                    vr::BeginHudLayer();
+                }
+                else RenderScene(scene, cam, opts);
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;
                 RenderSceneForeground(scene, cam, opts);   // kinds 22..25 over the HUD (group 10, 0x157CF0)
                 DrawDebugOverlay(g_gl.renderWidth, g_gl.renderHeight);   // (debugmenu.h: the debug menu over all; Debug keys only)
-                g_gl.RememberOverlaySourceFrame();
+                if (fVrEyes)
+                {
+                    // (VR: the T-pose calibration's instructions over the HUD; the HUD layer is no picture to capture)
+                    float uVrProgress = -1.0f;
+                    if (std::vector<std::string> alines; vr::FGuidedMessage(&alines, &uVrProgress)) DrawVrMessage(alines, uVrProgress);
+                    g_gl.ForgetOverlaySources();
+                }
+                else g_gl.RememberOverlaySourceFrame();
             }
+            RestoreVrHands(scene, &vrhands);
             DrawAnimatedOverlayFrame();  // orig: 0x1477D8, capture then clear/draw the exclusive surfaces
+            // (VR) the picture as it is now (screen mode: all of it; stereo: the HUD and the wipes) onto the panel
+            if (fVrFrame) vr::SubmitPanel();
             if (!go.screenshot.empty() && frame + 1 == go.cframe)
             {
                 glFinish();
@@ -2008,13 +2222,24 @@ int RunGame(const GAMEOPTS& go)
             t2 = now();
             if (fWindow)
             {
-                g_gl.Present();
+                if (!vr::FPresentMirror()) g_gl.Present();   // (vr.h: with the headset's eyes, the left eye + the HUD)
+                // (VR first person: the wristwatch's face, vr.h; into the scene target only now, once the panel, the
+                // screenshots and the window's picture (the mirror's HUD too) have read it; its own layer on the wrist)
+                if (fVrFrame && vr::FWatchOpen())
+                {
+                    vr::BeginWatchLayer();
+                    std::vector<std::string> astrWatch;
+                    int iCurWatch = -1, iHoverWatch = -1;
+                    if (vr::FWatchState(&astrWatch, &iCurWatch, &iHoverWatch)) DrawVrWatch(astrWatch, iCurWatch, iHoverWatch);
+                    vr::SubmitWatch();
+                }
                 if (s_fFpsLog && s_aqGpu[0]) glEndQuery(GL_TIME_ELAPSED), ++s_iqGpu;
 #ifdef __SWITCH__
                 // (SaltyNX's overlays: the scene's render size, which the internal resolution sets)
                 CaneDeko::SetFrameResolution(unsigned(g_gl.renderWidth), unsigned(g_gl.renderHeight));
 #endif
                 cane::gl::SwapBuffers(g_gl.window);
+                vr::EndFrame();   // (vr.h: after every BeginFrame, the eyes' and the panel's layers to the headset)
             }
         }
         else PrepareAnimatedOverlayFrame();  // same logical boundary for frames without a GL target
@@ -2022,7 +2247,8 @@ int RunGame(const GAMEOPTS& go)
         // (SLY2N_REALTIME: a headless run paced at 60 Hz too, so the audio thread's streams (dialog lines the
         // scripts wait on) keep up with the frames)
         static const bool s_fRealtime = std::getenv("SLY2N_REALTIME") != nullptr;
-        if (fWindow && g_display.frameRate < DISP_FRAMERATE_UNCAPPED)   // the frame-rate cap (with or without VSync)
+        if (vr::FPacesFrames()) {}   // (VR: xrWaitFrame paced this frame)
+        else if (fWindow && g_display.frameRate < DISP_FRAMERATE_UNCAPPED)   // the frame-rate cap (with or without VSync)
             pacer.Wait(g_display.frameRate, g_display.fSwapPacesFrames, g_display.swapGeneration);
         else if (s_fRealtime) pacer.Wait(60);
         msUpdate += t1 - t0;
@@ -2082,6 +2308,7 @@ int RunGame(const GAMEOPTS& go)
         std::string err;
         if (!FWriteGameSave(sz, err)) std::printf("save dump: %s\n", err.c_str());
     }
+    if (const char* psz = std::getenv("SLY2N_SKELDUMP")) DumpVrSkeleton(psw.get(), psz);   // (vrbody.h, debug)
     if (const char* psz = std::getenv("SLY2N_POSECHECK"))
     {
         void PoseCheck(SW * psw, const char* pszSpec);  // animref.cpp
@@ -2103,6 +2330,7 @@ int RunGame(const GAMEOPTS& go)
     // the Ep7 boss run; and the sound thread was only joined by an atexit handler while the device's mixer ran on.)
     UnloadWorld(psw, false);
     ShutdownSound();
+    vr::Stop();
     if (fDraws) g_gl.Terminate();
     return 0;
 }

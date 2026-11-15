@@ -6,6 +6,7 @@
 #include "cplcy.h"
 #include "pcinput.h"
 #include "marker.h"
+#include "vr.h"   // (PC, VR: the head aims the binocucom in first person)
 
 #include "cls.h"
 #include "xf.h"
@@ -1429,6 +1430,35 @@ void CPRECON::Update(CPDEFI* pcpdefi, const CMJOY* pjoy)
         // unless "Invert Binocucom Controls" is on): mouse up looks up; only the mouse's own binocucom inversion
         // (mouseInvertBinocY, in MouseAimDelta) flips it, the game's option is the stick's)
         radTilt = std::clamp(radTilt + pjoy->dradAimUp * k, lmTilt.gMin, lmTilt.gMax);
+    }
+    // (PC, VR: vr.h) first person: you look through the binocucom with your head. radPan / radTilt are world angles
+    // (PosEye: the view looks along BuildPanTiltMatrix's row 0 = (cos t cos p, cos t sin p, sin t), p an atan2(y, x)
+    // heading, t up), so they become the head's forward's, within the same limits; the stick's turn is dropped so it
+    // does not fight the head. (Stereo's eyes are this camera's yaw times the head: following the head there would add
+    // its turn twice each frame and spin the view, so stereo keeps the stick and the head looks around on top of it.)
+    glm::vec3 posHead;
+    glm::mat3 matHead;
+    float tanHeadX, tanHeadY;
+    uint64_t serialHead;
+    if (vr::FFirstPersonEyes() && vr::FHeadView(&posHead, &matHead, &tanHeadX, &tanHeadY, &serialHead))
+    {
+        const glm::vec3 dirHead = matHead[0];
+        const float rHead = std::sqrt(dirHead.x * dirHead.x + dirHead.y * dirHead.y);
+        if (rHead > EPS_1E4)   // (straight up or down the heading is undefined: the pan is kept)
+        {
+            const float panHead = std::atan2(dirHead.y, dirHead.x);
+            if (TWO_PI <= lmPan.gMax - lmPan.gMin) radPan = RadNormalize(panHead);
+            else
+            {
+                // (unwrapped limits (an object's pan +- 1, the stick's radPan not normalized): the head's pan taken
+                // nearest their middle, then clamped)
+                const float panMid = 0.5f * (lmPan.gMin + lmPan.gMax);
+                radPan = std::clamp(panMid + RadNormalize(panHead - panMid), lmPan.gMin, lmPan.gMax);
+            }
+        }
+        radTilt = std::clamp(std::atan2(dirHead.z, rHead), lmTilt.gMin, lmTilt.gMax);
+        dradPan = 0.0f;
+        dradTilt = 0.0f;
     }
     if (TWO_PI <= lmPan.gMax - lmPan.gMin) radPan = RadNormalize(radPan);
     if (static const bool s_f = std::getenv("SLY2N_RECONTILT") != nullptr; s_f)

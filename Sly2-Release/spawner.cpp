@@ -163,17 +163,17 @@ float DistXY(const glm::vec3& a, const glm::vec3& b) { return glm::length(glm::v
 glm::vec3 PosCenter()
 {
     if (LO* p = PloPoCurrent(g_psw)) return PosLoWorld(p);
-    return g_cm.pos;
+    return CmView().pos;
 }
 
 // orig 0x00173588 / 0x0014F308: the point in the camera's screen box of half-size r
 bool FInScreen(const glm::vec3& v, float r) { return v.z > 0.0001f && -r < v.x && v.x < r && -r < v.y && v.y < r; }
 glm::vec3 PosScreen(const glm::vec3& pos)
 {
-    const glm::vec3 d = pos - g_cm.pos;
-    const float z = glm::dot(d, g_cm.mat[0]);
-    const float x = -glm::dot(d, g_cm.mat[1]) / (z * std::max(g_cm.xScreenRange, 1e-4f));
-    const float y = glm::dot(d, g_cm.mat[2]) / (z * std::max(g_cm.yScreenRange, 1e-4f));
+    const glm::vec3 d = pos - CmView().pos;
+    const float z = glm::dot(d, CmView().mat[0]);
+    const float x = -glm::dot(d, CmView().mat[1]) / (z * std::max(CmView().xScreenRange, 1e-4f));
+    const float y = glm::dot(d, CmView().mat[2]) / (z * std::max(CmView().yScreenRange, 1e-4f));
     return glm::vec3(x, y, z);
 }
 
@@ -202,7 +202,7 @@ int NHidden(const SPAWNER& sp, const glm::vec3& pos, float sDistance)
 }
 int NHiddenImpl(const SPAWNER& sp, const glm::vec3& pos, float sDistance)
 {
-    const glm::vec3 d = pos - g_cm.pos;
+    const glm::vec3 d = pos - CmView().pos;
     if (sDistance * 0.8f < glm::length(d)) return 0;
     const glm::vec3 s = PosScreen(pos);
     if (s.z < 500.0f) return 0;
@@ -214,7 +214,7 @@ int NHiddenImpl(const SPAWNER& sp, const glm::vec3& pos, float sDistance)
         // the line from the camera to the point 100 up (D_002BE5C8) through 0x1B44D8's entries
         const glm::vec3 posRaised = pos + glm::vec3(0.0f, 0.0f, 100.0f);
         LSG lsg;
-        if (PsoeHitTestLineObjects(0, g_cm.pos, posRaised, s_apsoeOcclude, &lsg)) return 3;
+        if (PsoeHitTestLineObjects(0, CmView().pos, posRaised, s_apsoeOcclude, &lsg)) return 3;
     }
     return 0;
 }
@@ -256,9 +256,9 @@ float TGuardLastDrawn(LO* plo, float tWas)
     ALO* palo = static_cast<ALO*>(plo);
     if (!palo->pglobset) return tWas;
     const glm::mat4 mat = palo->apxfRef[2] ? palo->apxfRef[2]->matWorld : glm::mat4(1.0f);  // (ALO +0x60)
-    const glm::vec3 dpos = glm::vec3(mat * glm::vec4(palo->pglobset->posCenter, 1.0f)) - g_cm.pos;
-    if (!FInsideCmPlanes(&g_cm, dpos, palo->pglobset->sRadius)) return tWas;
-    if (UCmSphereDistanceFade(&g_cm, dpos, palo->sRadius) == 0.0f) return tWas;
+    const glm::vec3 dpos = glm::vec3(mat * glm::vec4(palo->pglobset->posCenter, 1.0f)) - CmView().pos;
+    if (!FInsideCmPlanes(&CmView(), dpos, palo->pglobset->sRadius)) return tWas;
+    if (UCmSphereDistanceFade(&CmView(), dpos, palo->sRadius) == 0.0f) return tWas;
     return std::max(tWas, g_clock.t - g_clock.dt);
 }
 
@@ -366,7 +366,7 @@ SOURCE* PsrcChoose(SPAWNER& sp, const glm::vec3& pos, glm::vec3* ppos, glm::mat3
                 EvalCrvS(pcrv, sAlong, &posCand, &dir);
                 const float s = DistXY(pos, posCand);
                 if (s < 1500.0f || sBest < s) continue;
-                const bool fOpposite = glm::dot(g_cm.mat[0], dir) < 0.0f;
+                const bool fOpposite = glm::dot(CmView().mat[0], dir) < 0.0f;
                 if (!fOpposite) dir = -dir;
                 const float rad = std::atan2(dir.y, dir.x);
                 const glm::mat3 mat = glm::mat3(std::cos(rad), std::sin(rad), 0.0f, -std::sin(rad), std::cos(rad), 0.0f, 0.0f, 0.0f, 1.0f);
@@ -496,7 +496,7 @@ void UpdateSpawner(LO* p)
         int cIn = 0;
         for (const SOURCE& src : sp.asrc) cIn += src.plo && src.plo->fInWorld;
         std::fprintf(stderr, "spawner %d update t %.4f: slot %d, sources in world %d, player at %.0f %.0f; camera %.1f %.1f %.1f dir %.4f %.4f %.4f range %.4f %.4f\n", p->oid, g_clock.t,
-                     pslot ? 1 : 0, cIn, pos.x, pos.y, g_cm.pos.x, g_cm.pos.y, g_cm.pos.z, g_cm.mat[0].x, g_cm.mat[0].y, g_cm.mat[0].z, g_cm.xScreenRange, g_cm.yScreenRange);
+                     pslot ? 1 : 0, cIn, pos.x, pos.y, CmView().pos.x, CmView().pos.y, CmView().pos.z, CmView().mat[0].x, CmView().mat[0].y, CmView().mat[0].z, CmView().xScreenRange, CmView().yScreenRange);
         if (std::atoi(std::getenv("SLY2N_SPAWNDEBUG")) >= 3)
             for (const SOURCE& src : sp.asrc)
             {
@@ -529,7 +529,7 @@ void UpdateSpawner(LO* p)
     if (std::getenv("SLY2N_SPAWNDEBUG"))
         std::fprintf(stderr, "spawner %d: guard %d (cid 0x%X) from source %d kind %d at %.0f %.0f %.0f, t %.2f flip %d facing %.3f %.3f cam %.3f %.3f %.3f\n", p->oid, plo->oid,
                      plo->Cid(), psrc->oid, psrc->kind, posSpawn.x, posSpawn.y, posSpawn.z, g_clock.t, fFlip, matSpawn[0].x, matSpawn[0].y,
-                     g_cm.mat[0].x, g_cm.mat[0].y, g_cm.mat[0].z);
+                     CmView().mat[0].x, CmView().mat[0].y, CmView().mat[0].z);
     pslot->plo = plo;
     pslot->tTime = g_clock.t;
     pslot->psrc = psrc;

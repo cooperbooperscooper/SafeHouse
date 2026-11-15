@@ -69,9 +69,19 @@ unsigned GlTextureOfShd(const SHD* pshd, int iframe);
 // World start (shd.cpp ResetShaders): forgets the texture cache, keyed by the old world's records; the GL textures are
 // deleted at the next lookup.
 void ResetTextureCache();
-void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts);
+// (VR, vr.h) One headset eye's view in place of the camera's own: its world-to-clip transform (reversed-Z infinite
+// far, as CAMERA::MatWorldToClip), its position and forward direction. fSkipTargets: the render targets were
+// already drawn this frame (the first eye drew them).
+struct VIEWOVERRIDE
+{
+    glm::mat4 matWorldToClip{1.0f};
+    glm::vec3 pos{0.0f};
+    glm::vec3 dir{1.0f, 0.0f, 0.0f};
+    bool fSkipTargets = false;
+};
+void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts, const VIEWOVERRIDE* pview = nullptr);
 // The foreground kinds 22..25 (SCENEGLOBSET::fForeground) after the HUD, over a cleared depth.
-void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts);
+void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts, const VIEWOVERRIDE* pview = nullptr);
 
 // More instances of loaded globs to draw this frame (RIPs' models: the glob iglob of an entry at mat, faded by
 // alpha); the particles fill them through the hook.

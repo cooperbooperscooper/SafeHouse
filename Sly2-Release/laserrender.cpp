@@ -55,7 +55,7 @@ void CollectLaserDraws(const SCENE& scene, const glm::vec3& posCamera, std::vect
         ALO* p = static_cast<ALO*>(plo);
         if (!p->fInWorld || p->fRemoved || !FAloDrawn(g_psw, p)) continue;
         const OXA* oxa = Poxa(p);
-        if (!oxa || !FInsideCmPlanes(&g_cm, oxa->posCenter - posCamera, oxa->sRadius)) continue;
+        if (!oxa || !FInsideCmPlanes(&CmView(), oxa->posCenter - posCamera, oxa->sRadius)) continue;
         ALO* line = PaloLaserModel(p, 0x190);
         ALO* stretch = PaloLaserModel(p, 0x194);
         ALO* ends[2] = {PaloLaserModel(p, 0x1A0), PaloLaserModel(p, 0x1B0)};

@@ -11,6 +11,17 @@
 #include "../platform/system_settings.h"
 
 #include <GLFW/glfw3.h>
+#if SLY2N_VR
+#include "gl.h"
+#include "joy.h"
+#include "vr.h"
+#include "vr_prompts_png.h"     // (generated: assets/prompts/prompts_vr.png)
+#include "vrprompt_rects.inc"
+#define STB_IMAGE_STATIC          // (a private copy, as qolview.cpp / texmod.cpp keep theirs)
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+#include <iterator>
+#endif
 
 #include <cctype>
 #include <cstdint>
@@ -33,6 +44,78 @@ int ActionFromGlyph(char ch)
         if (g.ch == ch) return g.action;
     return -1;
 }
+
+#if SLY2N_VR
+// (PC, VR: vr.h) The VR controllers' icons (tools/pack_vr_prompts.py: Kenney's Meta Quest / Valve Index sets): a glyph's
+// PS2 button, the physical control the playing character's profile puts it on (Sly2VR.ini), that control's icon.
+unsigned TexVrPrompts()
+{
+    static unsigned s_tex = 0;
+    static bool s_fTried = false;
+    if (s_fTried) return s_tex;
+    s_fTried = true;
+    int dx = 0, dy = 0;
+    stbi_uc* pb = stbi_load_from_memory(sly2n_vr_prompts_png, int(sizeof(sly2n_vr_prompts_png)), &dx, &dy, nullptr, 4);
+    if (!pb) return 0;
+    GLint texPrev = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, dx, dy, 0, GL_RGBA, GL_UNSIGNED_BYTE, pb);   // (unflipped, as the atlases)
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+    stbi_image_free(pb);
+    s_tex = tex;
+    return s_tex;
+}
+
+// The icon slot (vrprofile.h Ctl_*, 12 / 13 the left / right stick) a glyph is drawn with, -1: none (the usual icons)
+int SlotVrGlyph(char ch)
+{
+    if (ch == '(' || ch == '+') return 12;   // (the left stick; the Touch has no d-pad)
+    if (ch == ')') return 13;
+    static constexpr struct { char ch; uint16_t btn; } s_a[] = {
+        {'X', BTN_Cross}, {'O', BTN_Circle}, {'S', BTN_Square}, {'T', BTN_Triangle}, {'L', BTN_L1}, {'R', BTN_R1},
+        {'l', BTN_L2}, {'r', BTN_R2}, {'!', BTN_Start}, {'_', BTN_Select}};
+    for (const auto& g : s_a)
+        if (g.ch == ch) return vr::CtlForButton(g.btn);
+    return -1;
+}
+
+PROMPTGLYPH VrGlyph(char ch)
+{
+    PROMPTGLYPH glyph;
+    if (!vr::FPromptsVr()) return glyph;
+    const int slot = SlotVrGlyph(ch);
+    if (slot < 0 || slot >= kVrPromptSlots) return glyph;
+    const int* r = kVrPromptRects[vr::FIndexControllers() ? 1 : 0][slot];
+    const unsigned tex = r[2] > 0 ? TexVrPrompts() : 0;
+    if (!tex) return glyph;
+    const float w = float(kVrPromptAtlasW), h = float(kVrPromptAtlasH);
+    glyph.kind = PROMPTGLYPH::Icon;
+    glyph.tex = tex;
+    glyph.u0 = r[0] / w; glyph.v0 = (r[1] + r[3]) / h; glyph.u1 = (r[0] + r[2]) / w; glyph.v1 = r[1] / h;
+    return glyph;
+}
+
+const char* PchzVrLabel(char ch)
+{
+    static constexpr const char* s_apsz[] = {"A", "B", "X", "Y", "Left trigger", "Right trigger", "Left grip",
+                                             "Right grip", "Left stick click", "Right stick click", "Menu",
+                                             "Right trackpad", "Left stick", "Right stick"};
+    const int slot = vr::FPromptsVr() ? SlotVrGlyph(ch) : -1;
+    if (slot < 0 || slot >= int(std::size(s_apsz))) return nullptr;
+    if (vr::FIndexControllers() && (slot == 2 || slot == 3)) return slot == 2 ? "Left A" : "Left B";
+    if (vr::FIndexControllers() && slot == 10) return "Left trackpad";
+    return s_apsz[slot];
+}
+#endif
 
 int s_textId = -1;
 char s_chKeyOverride = '\0';
@@ -201,6 +284,9 @@ PROMPTGLYPH PromptGlyphFor(char ch)
     if (override && s_familyOverride)
         return PromptGlyphForBinding(*s_familyOverride == Family::Keyboard ? s_keyOverride : s_padOverride, *s_familyOverride);
     if (g_pcinput.fAlwaysOriginalPs) return original;
+#if SLY2N_VR
+    if (const PROMPTGLYPH g = VrGlyph(ch); g.kind == PROMPTGLYPH::Icon) return g;   // (the VR controllers, used last)
+#endif
 
     const Family family = PromptFamily();
     PROMPTGLYPH glyph;
@@ -220,6 +306,10 @@ std::string PromptLabelFor(char ch)
 {
     const int a = ActionFromGlyph(ch);
     if (a < 0) return "";
+#if SLY2N_VR
+    if (!g_pcinput.fAlwaysOriginalPs)
+        if (const char* pchz = PchzVrLabel(ch)) return pchz;
+#endif
     if (PromptFamily() == Family::Keyboard && !g_pcinput.fAlwaysOriginalPs) {
         int key = ch == s_chKeyOverride && s_chKeyOverride ? s_keyOverride : PromptBinding(ch, a, false);
         if (a == PCA_Start && key == cane::settings::kKeyUnknown) key = GLFW_KEY_ESCAPE;

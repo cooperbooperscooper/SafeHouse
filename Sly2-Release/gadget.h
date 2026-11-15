@@ -12,6 +12,7 @@ struct ACTOR;
 
 void UpdateActorAbilities(ACTOR* pa);              // orig 0x00141A50 (from the actor's update, after 0x203FC0)
 void SetActorAbilitySlot(ACTOR* pa, int i, int id);  // orig 0x00141FC8 (the gadget menu's assignment)
+int IdActorAbilitySlot(ACTOR* pa, int i);           // (PC, VR's wristwatch) the id slot i holds as the game uses it (-1 none)
 uint32_t GrfAbilityButton(ACTOR* pa, int id);       // orig 0x00141EA8: the button mask of the slot holding id (0 none)
 int NActorPower(ACTOR* pa);                         // orig 0x001441A0
 void SetActorPower(ACTOR* pa, int n);               // orig 0x001441C0 (at most +0x1300)

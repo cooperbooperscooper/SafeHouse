@@ -38,6 +38,7 @@ glm::mat3 BuildLookAtMatrix(const glm::vec3& vecX, const glm::vec3& vecY);  // m
 #include "task.h"
 #include "transition.h"
 #include "update.h"
+#include "vr.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -617,6 +618,14 @@ void PickpocketTake(SLY* p)
     if (!p->plo10DC || !p->f1BD4) return;
     LO* r = PloTakePocket(p->plo10DC);
     if (!r || FIsLoDerivedFrom(r, 0x5B) || FIsLoDerivedFrom(r, 0x5D)) return;
+    // (PC, VR first person: vr.h) no prize pose, so no prize card (its clip 0x282's script shows it, pausing the game, with
+    // Sly's close-up drawn over the HUD panel): a pickup prize (loot 0x5E, a key 0x5C) collected at once, as the steal by
+    // the hand does (vrinteract.cpp); launched with no collect time (0x1C2EF0), it would otherwise rest and expire uncounted
+    if (vr::FFirstPerson() && FIsLoDerivedFrom(r, 0x5A))
+    {
+        SetPickupState(r, 1);  // vt slot 76 (loot: "loot mplootkc" counted; a prize: its task asked for state 2)
+        return;
+    }
     ASEG* paseg = dynamic_cast<ASEG*>(PloFindSwChild(p->palo, 0x282));  // 0x15E938(G, 1, 0x282, Sly)
     p->plo1BCC = r;
     StartPrizeInteract(p, paseg, r, -1);  // 0x1424E0
