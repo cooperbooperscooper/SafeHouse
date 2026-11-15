@@ -1,9 +1,9 @@
-SLY 2 VR 0.1.10 - CONTROLS (print me)
+SLY 2 VR 0.1.11 - CONTROLS (print me)
 ====================================
 
 CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip, USE with the trigger
   Left stick        move (where you look)       click: sprint on/off      hold the click: world stats
-  Right stick       turn (smooth; snap in VR Settings)   click: binocucom
+  Right stick       turn (smooth; snap in VR Settings)   click: binocucom (or the one on your left thigh, below)
   A                 jump
   B                 interact / grab: the button way of climbing; at a guard's pocket: HOLD it to steal (below)
   X                 uppercut (or swing the cane upward)
@@ -12,7 +12,7 @@ CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip,
   Left trigger      use your gadget (the one picked on the wristwatch)
   Right grip        grab (the cane on your back, pockets, poles, ledges); anywhere else: sprint while held,
                     and in the air: the paraglider (jump, then the right grip; keep holding it)
-  Left grip         grab (pockets, poles, ledges)
+  Left grip         grab (pockets, poles, ledges); at your left thigh: draw the binocucom
   The Menu button (three lines) belongs to Steam Link / Quest Link and is not used by the game.
   Bentley: hold the left trigger to ready his darts (no binocucom needed), the right trigger fires;
   his swing on the right grip.
@@ -29,6 +29,12 @@ USING YOUR HANDS (first person)
                 one with your left hand and pull the left trigger. From then on the left trigger uses it.
   Climbing      Grip a pole, pipe, hook or ledge (where the blue sparkles are) with either hand. On a pole, pull
                 down hand over hand to climb. On a ledge, keep gripping to hang; let go to drop; A climbs up.
+  Binocucom     It rides on your left thigh. Reach down (a tick in your left hand) and grip to draw it; keep
+                gripping to hold it, let go to put it back. Raise it to your eyes and the binocucom opens: a round
+                zoomed lens before your eyes. Twist it like a ring to zoom (clockwise in, back out; the right stick
+                still zooms too). Lower it and it closes. Photo jobs: the right grip takes the photo, as R1 does.
+                If the game slows down while you look, the world around the lens goes dark so it keeps running
+                smoothly (VR Settings > Binocucom Lens).
   Paraglider    Jump, then hold the right grip. Raise both hands and grip with both, as if holding lines: pull the
                 left hand down to turn left, the right to turn right, both down to slow down.
   Cutscenes (the Cairo intro and every other one) play from the game's own camera, with your head as the camera
@@ -38,7 +44,8 @@ VR SETTINGS (in the game: Options > VR Settings, from the pause menu or the titl
   Recalibrate (T-pose), Sly Size, Hand Size, Hand Turn and Shift X/Y/Z, Cane Size, Cane Turn and Shift X/Y/Z,
   Turn Speed, Hands on/off, Cane Fit (on your hand or on the grip), Turning (smooth or snap), Gadget Menu
   (wristwatch or the Y button), Pickpocket (hold B, grab or button), Climbing (grab or button), Glider (hand
-  lines or stick), Reset. Move the left stick left / right to change a value: it applies at once and is saved.
+  lines or stick), Binocucom (on thigh or stick click only), Binocucom Lens (auto, picture in picture, or dark
+  around), Reset. Move the left stick left / right to change a value: it applies at once and is saved.
   The defaults are your own headset-tuned values (Sly Size 150%, Hand Size 50%, the hand and cane turns and
   shifts you set); Reset goes back to them.
 

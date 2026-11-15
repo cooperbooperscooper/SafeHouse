@@ -243,6 +243,9 @@ void JoltCm(CM* pcm, int n);
 // the headset's field of view (its view planes built again; the draw distances, fog and policies g_cm's). Kept for
 // a step: a reference, valid until the next step.
 const CM& CmView();
+// (PC, VR, 0.1.11) The photo jobs' view: CmView, but while the binocucom's lens is up with the world drawn around it,
+// the game's own binocucom view's ranges (its zoom) from your head: photos framed and sized as flat.
+const CM& CmPhotoView();
 // orig: 0x0014F768 (the stereo eye's clip matrix: k 1 left, 2 right)
 cmm::MATRIX4 MatCmStereoEye(const CM* pcm, int k, const cmm::MATRIX4* pmatProj);
 // orig: 0x0014F850 FInsideCmPlanes (the point in front of the three transposed planes by w.x)

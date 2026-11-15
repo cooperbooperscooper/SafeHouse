@@ -88,6 +88,9 @@ pickpocket = hold         ; hold: at a pocket hold B (the cane can't attack), br
 ;                           (grab: reach for the pocket and grip, no B needed; button: B only, the game's way)
 climb = grab              ; grab: grip a pole, pipe, hook or ledge with a hand to grab it; button: B only
 glide = lines             ; lines: steer the paraglider with both hands raised and gripping; stick: the left stick
+binocucom = thigh         ; thigh: grip at your left thigh to draw it, raise it to your eyes, twist it to zoom; stick: R3 only
+binoc_view = auto         ; its lens: auto (dark around it if the game slows), lens (always the picture in picture), dark
+binoc_lens = 50           ; how large the lens looks before your eyes, degrees across (10 to 90; it shows the game's binocucom view)
 forearm = 1               ; with show_hands = 1: a bit of forearm with each hand (0: the hand only)
 hands = auto              ; the hand bones: auto, or left,right indices from the SLY2N_VR_BONES=1 printout
 swing_speed = 2.5         ; how fast (m/s) the right hand must move to count as a swing
@@ -275,6 +278,19 @@ void Apply(const SECTION& sec, const char* szSection, PROFILE* pp)
             fOk = l == "hold" || l == "grab" || l == "button";
             if (fOk) pp->nSteal = l == "hold" ? 0 : l == "grab" ? 1 : 2;
         }
+        else if (key == "binocucom")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "thigh" || l == "stick";
+            if (fOk) pp->nBinoc = l == "thigh" ? 0 : 1;
+        }
+        else if (key == "binoc_view")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "auto" || l == "lens" || l == "dark";
+            if (fOk) pp->nBinocView = l == "auto" ? 0 : l == "lens" ? 1 : 2;
+        }
+        else if (key == "binoc_lens") fOk = FFloat(val, &g) && g >= 10.0f && g <= 90.0f && (pp->degLens = g, true);
         else if (key == "climb" || key == "glide")
         {
             const std::string l = Lower(val);

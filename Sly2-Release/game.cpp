@@ -2178,12 +2178,25 @@ int RunGame(const GAMEOPTS& go)
                 {
                     // (VR stereo) the world once per eye into the scene target, each copied into its eye's image;
                     // then the HUD alone over a transparent target for the floating panel (the window shows that)
+                    // (0.1.11: the binocucom's lens with the world dark around it: the eyes not drawn, only the lens)
+                    const bool fEyesDark = vr::FLensDark();
                     for (int k = 0; k < 2; ++k)
                     {
-                        RenderScene(scene, cam, opts, &aeye[k]);
-                        vr::DrawAimPointer(aeye[k]);   // (vr.h: the controller's pointer while something aims with it)
+                        if (fEyesDark) vr::DrawEyeDark();
+                        else
+                        {
+                            RenderScene(scene, cam, opts, &aeye[k]);
+                            vr::DrawBinoc(aeye[k]);        // (vr.h: the binocucom, on the left thigh or in the left hand)
+                            vr::DrawAimPointer(aeye[k]);   // (vr.h: the controller's pointer while something aims with it)
+                        }
                         vr::DrawEyeFade();             // (vr.h: the blink of a cut or a switch of view)
                         vr::SubmitEye(k);
+                    }
+                    // (0.1.11) the binocucom's lens: the world once more, zoomed, from your eyes' middle, onto its own layer
+                    if (VIEWOVERRIDE lens; vr::FLensView(&lens))
+                    {
+                        RenderScene(scene, cam, opts, &lens);
+                        vr::SubmitLens();
                     }
                     vr::BeginHudLayer();
                 }

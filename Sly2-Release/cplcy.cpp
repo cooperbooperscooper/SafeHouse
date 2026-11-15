@@ -1399,7 +1399,25 @@ void CPRECON::Update(CPDEFI* pcpdefi, const CMJOY* pjoy)
         else if (1.0f < u) u = 1.0f;
         uZoom = u;
     }
-    UpdateZoomSound(sndZoom, duZoom != 0.0f && 0.0f < uZoom && uZoom < 1.0f, duZoom);
+    // (PC, VR first person: vr.h) the binocucom twisted like a ring zooms too: its turn since the last update, onto the
+    // stick's (the zoom's motor sound at its rate)
+    // (a slow twist reaches only some updates: its rate held for a tenth of a second, so the sound does not stutter)
+    static float s_duTwistRate = 0.0f;
+    static float s_dtTwistHold = 0.0f;
+    float duSound = duZoom;
+    if (const float duTwist = vr::DuBinocTwist(); duTwist != 0.0f)
+    {
+        uZoom = std::clamp(uZoom + duTwist, 0.0f, 1.0f);
+        duZoom = dt > 1e-4f ? duTwist / dt : 0.0f;
+        duSound = s_duTwistRate = duZoom;
+        s_dtTwistHold = 0.1f;
+    }
+    else if (s_dtTwistHold > 0.0f && duSound == 0.0f)
+    {
+        s_dtTwistHold -= dt;
+        duSound = s_duTwistRate;
+    }
+    UpdateZoomSound(sndZoom, duSound != 0.0f && 0.0f < uZoom && uZoom < 1.0f, duSound);
     const float w = 1.0f - uZoom;
     SetCmFov(&g_cm, (1.0f - w) * radFOVNear + w * radFOVFar);
     // the turn: the left stick, accelerating at 10 / s^2, slowed toward the limits

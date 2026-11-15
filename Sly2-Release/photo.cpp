@@ -148,7 +148,7 @@ bool Active(const PHOTOPROMPT& p) {
 // orig: 0x2020C8.
 void DistanceModels(PHOTOPROMPT& p) {
     for (const auto& t : p.targets) if (t.linked) {
-        const glm::vec3 d = PosLoWorld(t.plo) - CmView().pos;
+        const glm::vec3 d = PosLoWorld(t.plo) - CmPhotoView().pos;
         const float distance = std::sqrt(std::fabs(d.x * d.x + d.y * d.y));
         if (t.linkedRadius < distance) {
             if (!t.linked->fInWorld) SwitchLoFaded(t.linked, true, 0.25f);
@@ -172,10 +172,10 @@ void Visibility(PHOTOPROMPT& p, PHOTOTARGET& t) {
                 entries.push_back(entry);
     }
     const glm::vec3 toward = glm::normalize(p.eye - at);
-    const glm::vec3 cross = glm::cross(CmView().mat[1], toward);
+    const glm::vec3 cross = glm::cross(CmPhotoView().mat[1], toward);
     const glm::vec3 lateral = glm::normalize(cross) * t.size;
     const glm::vec3 center = at + toward * t.size;
-    const glm::vec3 up = CmView().mat[1] * t.size;
+    const glm::vec3 up = CmPhotoView().mat[1] * t.size;
     const glm::vec3 points[4] = {center, center + up, center - up, center + lateral};
     int blocked = 0;
     static const bool s_fWhy = std::getenv("SLY2N_PHOTOWHY") != nullptr;
@@ -195,7 +195,7 @@ void Visibility(PHOTOPROMPT& p, PHOTOTARGET& t) {
 // orig: 0x202540.
 void Pick(PHOTOPROMPT& p) {
     const ACTORPOSE pose = PoseFromLo(p.owner->palo);
-    const ACTORCMCTX ctx{CmView().fCut != 0, CmView().psoFocusPrev == p.owner->palo, g_clock.t, g_clock.dt, 0.0f};
+    const ACTORCMCTX ctx{CmPhotoView().fCut != 0, CmPhotoView().psoFocusPrev == p.owner->palo, g_clock.t, g_clock.dt, 0.0f};
     if (const SLY* sly = dynamic_cast<SLY*>(p.owner)) p.eye = PosSlyFocus(*sly, pose, ctx);
     else p.eye = PosActorFocus(*p.owner, pose, ctx);
     p.eye.z += 20.0f;
@@ -204,12 +204,12 @@ void Pick(PHOTOPROMPT& p) {
     const uint32_t minimumBits = g_disc.U32Elf(0x2A8550); std::memcpy(&minimum, &minimumBits, 4);
     static const bool s_fWhy = std::getenv("SLY2N_PHOTOWHY") != nullptr;  // (debug: why each target is not picked)
     for (auto& t : p.targets) {
-        if (!Eligible(t)) { if (s_fWhy) std::printf("photowhy %d: not eligible (in %d, linked %d in %d radius %.0f, cam distance %.0f)\n", t.plo->oid, t.plo->fInWorld, t.linked ? t.linked->oid : -1, t.linked ? t.linked->fInWorld : -1, t.linkedRadius, glm::length(glm::vec2(PosLoWorld(t.plo) - CmView().pos))); continue; }
+        if (!Eligible(t)) { if (s_fWhy) std::printf("photowhy %d: not eligible (in %d, linked %d in %d radius %.0f, cam distance %.0f)\n", t.plo->oid, t.plo->fInWorld, t.linked ? t.linked->oid : -1, t.linked ? t.linked->fInWorld : -1, t.linkedRadius, glm::length(glm::vec2(PosLoWorld(t.plo) - CmPhotoView().pos))); continue; }
         const glm::vec3 pos = PosLoWorld(t.plo);
-        if (!FInsideCmPlanes(&CmView(), pos - CmView().pos, t.radius)) { if (s_fWhy) std::printf("photowhy %d: outside the view (radius %.1f)\n", t.plo->oid, t.radius); continue; }
+        if (!FInsideCmPlanes(&CmPhotoView(), pos - CmPhotoView().pos, t.radius)) { if (s_fWhy) std::printf("photowhy %d: outside the view (radius %.1f)\n", t.plo->oid, t.radius); continue; }
         float alpha;
-        if (!FInsideCmMrd(&CmView(), pos, t.plo->sRadius, &alpha)) { if (s_fWhy) std::printf("photowhy %d: beyond the draw distance (radius %.1f)\n", t.plo->oid, t.plo->sRadius); continue; }
-        const glm::vec3 d = pos - CmView().pos;
+        if (!FInsideCmMrd(&CmPhotoView(), pos, t.plo->sRadius, &alpha)) { if (s_fWhy) std::printf("photowhy %d: beyond the draw distance (radius %.1f)\n", t.plo->oid, t.plo->sRadius); continue; }
+        const glm::vec3 d = pos - CmPhotoView().pos;
         const float distance = std::sqrt(std::fabs(d.x * d.x + d.y * d.y));
         if (s_fWhy) std::printf("photowhy %d: distance %.1f (minimum %.1f)\n", t.plo->oid, distance, minimum);
         if (distance < minimum) {
@@ -374,8 +374,8 @@ void UpdatePhotoPrompt(void* pv) {
     }
     if (p.best) {
         const glm::vec3 pos = PosLoWorld(p.best->plo);
-        const glm::vec3 first0 = ConvertCmWorldToScreen(&CmView(), pos);
-        const glm::vec3 second0 = ConvertCmWorldToScreen(&CmView(), pos + CmView().mat[1] * p.best->size);
+        const glm::vec3 first0 = ConvertCmWorldToScreen(&CmPhotoView(), pos);
+        const glm::vec3 second0 = ConvertCmWorldToScreen(&CmPhotoView(), pos + CmPhotoView().mat[1] * p.best->size);
         const glm::vec2 first(first0.x * 320.0f + 320.0f, first0.y * -246.40000915527344f + 246.40000915527344f);
         const glm::vec2 second(second0.x * 320.0f + 320.0f, second0.y * -246.40000915527344f + 246.40000915527344f);
         float center = glm::length(first - glm::vec2(p.screen));
@@ -391,8 +391,8 @@ void UpdatePhotoPrompt(void* pv) {
         s_kAim > 0 && g_iframeHarness % s_kAim == 0)
         for (const auto& t : p.targets) {
             const glm::vec3 pos = PosLoWorld(t.plo);
-            const glm::vec3 s0 = ConvertCmWorldToScreen(&CmView(), pos);
-            const glm::vec3 s1 = ConvertCmWorldToScreen(&CmView(), pos + CmView().mat[1] * t.size);
+            const glm::vec3 s0 = ConvertCmWorldToScreen(&CmPhotoView(), pos);
+            const glm::vec3 s1 = ConvertCmWorldToScreen(&CmPhotoView(), pos + CmPhotoView().mat[1] * t.size);
             const glm::vec2 a(s0.x * 320.0f + 320.0f, s0.y * -246.4f + 246.4f), b(s1.x * 320.0f + 320.0f, s1.y * -246.4f + 246.4f);
             std::printf("photoaim frame %d state %d target %d at %.0f %.0f %.0f screen %.1f %.1f (z %.2f) reticle %.1f %.1f size %.3f best %d done %d\n",
                         g_iframeHarness, p.state, t.plo->oid, pos.x, pos.y, pos.z, a.x, a.y, s0.z, float(p.screen.x), float(p.screen.y),

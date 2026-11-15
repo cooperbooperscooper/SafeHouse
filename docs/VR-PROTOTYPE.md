@@ -135,7 +135,11 @@ package's `Update.bat` checks and applies (with a backup for `Rollback.bat`).
    9:72 / 9:119); `SLY2N_SKELDUMP=<file>` with a headless `--world N` run prints every gang member's skeleton and the
    hands chosen; `SLY2N_VR_BONES=1` logs the hands and the cane's measure in VR.
 2. **Hacking, the RC missions and the vault dial** still show in 3D around you: they belong on the floating screen.
-3. **Binocucom zoom** isn't visible in the headset (the eyes keep the headset's field of view).
+3. **Binocucom zoom** (0.1.11): shown in a round zoomed lens before your eyes (a picture in picture: the eyes keep the
+   headset's field of view, which a zoom there would break). The physical binocucom on the left thigh
+   ([`vrbinoc.cpp`](../Sly2-Release/vrbinoc.cpp), vr.cpp `StepBinoc`) is untested on a headset: the thigh's height
+   (half the calibrated eye height), the raise's reach and angle, the twist's direction. The game's binocucom frame
+   is still on the world-locked HUD panel.
 4. **Seated play** keeps the standing T-pose height. Gloves are one bone each: no finger curls. Hand over hand is
    Sly's only.
 5. **The cane in your hand is visual:** hits come from the game's own attack (a swing presses its button).

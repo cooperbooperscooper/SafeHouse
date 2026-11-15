@@ -73,6 +73,12 @@ struct PROFILE
                                   // at one (no B needed), 2 B only (the game's way)
     bool fGrabClimb = true;       // poles, pipes, hooks and ledges grabbed by gripping at them; false: B only
     bool fGlideLines = true;      // the paraglider steered by your raised hands as on lines; false: the stick
+    // (0.1.11) the binocucom: 0 on your left thigh (draw it with the left grip, raise it to your eyes, twist to zoom), 1
+    // the right stick click only; its lens: 0 auto (the world dark around it if the frames fall behind), 1 always the
+    // picture in picture, 2 always dark around it; the lens's size, degrees across
+    int nBinoc = 0;
+    int nBinocView = 0;
+    float degLens = 50.0f;
 };
 // The built-in profile of a character (before Sly2VR.ini): the VR Settings page's reset.
 PROFILE ProfileBuiltInOf(Char c);

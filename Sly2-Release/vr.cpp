@@ -16,6 +16,7 @@
 #include "vrprofile.h"
 #include "rumble.h"   // (g_fControllerVibration: the launcher's Controller vibration, for Pulse)
 #include "vrui.h"     // (IWatchEntryAt: the wristwatch's entries where DrawVrWatch draws them)
+#include "vrbinoc.h"   // (0.1.11: the binocucom's model and its lens's mask)
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -216,6 +217,28 @@ struct STATE
     GLuint fboMirrorHud = 0, texMirrorHud = 0;
     int dxMirrorHud = 0, dyMirrorHud = 0;
     bool fMirrorHudKept = false;
+    // (0.1.11) the binocucom on the left thigh (binocucom = thigh, vr.h FBinocDrawn): the left hand at its pouch, drawn
+    // (the left grip held), raised to your eyes (debounced); the R3 taps that open and close the game's binocucom
+    bool fAtThigh = false, fBinocDrawn = false, fBinocUp = false;
+    double tBinocSteady = 0.0, tBinocReq = 0.0;
+    bool fBinocOwned = false;     // (opened by raising it: lowering it closes it)
+    bool fBinocSpent = false;     // (this raise has had its open (or gave up): none again until it is lowered)
+    int cBinocTry = 0;            // (R3 taps this raise that the game has not answered)
+    double tBinocTap = -10.0;     // (this raise's last R3 tap: an open soon after it is ours)
+    bool fBinocClosing = false;   // (our close tapped, the game's not shut yet: a raise meanwhile waits for it)
+    // the game's binocucom as vrinteract last saw it (SetRecon): ACTOR nF04 (-1 off, 0 opening, 1 open, 2 closing),
+    // nF20 (0 your own view), the zoom (0..1), the fields of view (radians: zoomed out, now)
+    int nReconState = -1, nReconView = -1;
+    float uReconZoom = 0.0f, radReconFar = 0.0f, radReconFov = 0.0f;
+    // the twist (a zoom ring): the binocucom's sideways axis the read before, the zoom turned since cplcy last took it
+    glm::vec3 xBinocPrev{0.0f};
+    bool fTwistPrev = false;
+    float duTwist = 0.0f;
+    // the lens (a picture in picture): its swapchain, drawn this frame, the world dark around it (binoc_view = dark, or
+    // auto once the frames fall behind); the displayed frames' interval (seconds, smoothed)
+    SWAP lens;
+    bool fLensFrame = false, fLensDarkAuto = false;
+    double tLensOn = -10.0, tSlowSince = -1.0, tBeginPrev = 0.0, dtFrameAvg = 0.0;
 };
 STATE s;
 
@@ -954,6 +977,191 @@ bool FHolsterLocal(glm::vec3* ppos, glm::mat3* pmat)
     return true;
 }
 
+// (0.1.11) The binocucom's pouch on the left thigh (vr.h FBinocDrawn): left of, below and a little in front of the
+// eyes' middle in the torso's axes; below by about half your eye height (the height calibration's), else 0.72 m. The
+// zone: a box about it (metres, half sizes), a little larger once in it.
+constexpr float kxThigh = -0.17f, kzThigh = -0.04f;
+constexpr float kdxThigh = 0.15f, kdyThigh = 0.2f, kdzThigh = 0.2f, kmThighHyst = 0.05f;
+glm::vec3 PosThighLocal()
+{
+    const float m = vrprofile::MPlayerEye();
+    const float mBelow = m > 0.5f ? std::clamp(0.48f * m, 0.4f, 1.0f) : 0.72f;
+    return PosHeadLocal() + MatTorso(YawTorso()) * glm::vec3(kxThigh, -mBelow, kzThigh);
+}
+bool FLeftHandAtThigh()
+{
+    if (!s.fViews || !s.afGrip[0]) return false;
+    const glm::vec3 d = glm::transpose(MatTorso(YawTorso())) * (Vec(s.aposeGrip[0].position) - PosThighLocal());
+    const float e = s.fAtThigh ? kmThighHyst : 0.0f;
+    return std::fabs(d.x) < kdxThigh + e && std::fabs(d.y) < kdyThigh + e && std::fabs(d.z) < kdzThigh + e;
+}
+// The binocucom resting in its pouch (its own axes, vrbinoc.h): the objectives down the thigh, the eyepieces up, the
+// barrels' row across the thigh's outside
+bool FThighLocal(glm::vec3* ppos, glm::mat3* pmat)
+{
+    if (!s.fViews) return false;
+    const glm::mat3 mT = MatTorso(YawTorso());
+    *ppos = PosThighLocal() - mT[0] * 0.02f;
+    const glm::vec3 z = mT[1], y = -mT[0];   // (+Z the eyepieces: up; +Y outward, to your left)
+    *pmat = glm::mat3(glm::cross(y, z), y, z);
+    return true;
+}
+
+// Raised to your eyes: the eyepieces' middle within this of the eyes' middle, the binocucom's -Z within this angle of
+// where you look (larger once up), for a moment (the debounce); the twist: this many degrees for the whole zoom; the
+// R3 taps a moment apart, a few at most a raise (the game may not open it here: in the air, say)
+constexpr float kmBinocReach = 0.14f, kmBinocStay = 0.2f, kdegBinocUp = 35.0f, kdegBinocStay = 50.0f;
+constexpr double kdtBinocUp = 0.12, kdtBinocDown = 0.3, kdtBinocRetry = 0.5;
+constexpr int kcBinocTry = 4;
+constexpr float kdegTwistFull = 100.0f;
+void StepBinoc(bool fPhys, bool fGripL, bool fEdgeGripL, double t)
+{
+    const vrprofile::PROFILE& pr = Prof();
+    const bool fOn = pr.nBinoc == 0 && s.mode == Mode::FirstPerson;
+    // (let go, or the setting off: back in its pouch; a menu in between keeps it in the hand while the grip is held)
+    if (s.fBinocDrawn && (!fGripL || !fOn))
+    {
+        s.fBinocDrawn = false;
+        if (fPhys) Pulse(0, 0.3f, 0.03f);
+    }
+    // the pouch: a tick on reaching it, the left grip's press there draws it (that press kept from the game until let
+    // go); something to grab there (a pole, a ledge) wins
+    const bool fWas = s.fAtThigh;
+    s.fAtThigh = fPhys && fOn && !s.fBinocDrawn && !s.afGrabZone[0] && FLeftHandAtThigh();
+    if (s.fAtThigh && !fWas) Pulse(0, 0.25f, 0.02f);
+    if (s.fAtThigh && fEdgeGripL)
+    {
+        s.fBinocDrawn = true;
+        s.fAtThigh = false;
+        Pulse(0, 0.6f, 0.05f);
+        s.afCtlChord[vrprofile::Ctl_GripL] = true;
+    }
+    // raised to your eyes (debounced as the watch; the hand untracked for a moment keeps what it was)
+    const bool fTracked = s.fBinocDrawn && s.fViews && s.afGrip[0];
+    bool fRaised = s.fBinocUp;
+    glm::mat3 r(1.0f);
+    if (fTracked)
+    {
+        r = glm::mat3_cast(Quat(s.aposeGrip[0].orientation));
+        const glm::vec3 posEye = Vec(s.aposeGrip[0].position) + r * vrbinoc::PosEyepieces();
+        const glm::vec3 fwdHead = Quat(s.aview[0].pose.orientation) * glm::vec3(0.0f, 0.0f, -1.0f);
+        const float m = glm::length(posEye - PosHeadLocal());
+        fRaised = m < (s.fBinocUp ? kmBinocStay : kmBinocReach) &&
+                  glm::dot(-r[2], fwdHead) > std::cos(glm::radians(s.fBinocUp ? kdegBinocStay : kdegBinocUp));
+    }
+    if (!s.fBinocDrawn) s.fBinocUp = false, s.tBinocSteady = t;
+    else if (fRaised == s.fBinocUp) s.tBinocSteady = t;
+    else if (t - s.tBinocSteady >= (fRaised ? kdtBinocUp : kdtBinocDown)) s.fBinocUp = fRaised, s.tBinocSteady = t;
+    // the twist: the left grip's turn about the binocucom's axis since the read before, while it is up and the game's
+    // binocucom open (clockwise as you look through it: in); a tremor's below 0.1 degree a read ignored, a jump (the
+    // tracking found again) too
+    const bool fOwnOpen = s.nReconState == 1 && s.nReconView == 0;
+    bool fTwist = false;
+    if (fPhys && fTracked && s.fBinocUp && fRaised && fOwnOpen)   // (still at your eyes this read: lowering is no twist)
+    {
+        // (the hand's turn relative to the head: tilting your head, the hand following it, is no twist)
+        const glm::mat3 rRel = glm::mat3_cast(glm::inverse(Quat(s.aview[0].pose.orientation)) * Quat(s.aposeGrip[0].orientation));
+        const glm::vec3 f = -rRel[2];
+        glm::vec3 x = rRel[0] - glm::dot(rRel[0], f) * f;
+        if (glm::length(x) > 0.1f)
+        {
+            x = glm::normalize(x);
+            // (against an anchor moved only when a turn counts: a slow turn adds up past the tremor's quarter degree;
+            // a jump of 30 degrees or more (the tracking found again) moves it and counts nothing)
+            glm::vec3 x0 = s.xBinocPrev - glm::dot(s.xBinocPrev, f) * f;
+            if (!s.fTwistPrev || glm::length(x0) <= 0.1f) s.xBinocPrev = x;
+            else
+            {
+                x0 = glm::normalize(x0);
+                const float a = std::atan2(glm::dot(glm::cross(x0, x), f), glm::dot(x0, x));
+                if (std::fabs(a) >= glm::radians(30.0f)) s.xBinocPrev = x;
+                else if (std::fabs(a) > glm::radians(0.25f)) s.duTwist += a / glm::radians(kdegTwistFull), s.xBinocPrev = x;
+            }
+            fTwist = true;
+        }
+    }
+    s.fTwistPrev = fTwist;
+    if (!fOwnOpen) s.duTwist = 0.0f;
+    // the game's binocucom with it: raised, R3 tapped until it opens (a few at most); lowered or put back, R3 tapped
+    // until one it opened closes. One opened with the stick click is left alone; one the game closed (a face button, the
+    // last photo) is not opened again until it is lowered and raised again.
+    const bool fOpen = s.nReconState != -1;
+    // (a binocucom that has shut is no one's, and a close we tapped is answered: every read, the setting off too)
+    if (!fOpen) s.fBinocOwned = s.fBinocClosing = false;
+    if (!fPhys || !fOn) return;
+    if (!s.fBinocUp) s.fBinocSpent = false, s.cBinocTry = 0;
+    // (opening or open while raised (not shutting: ours, or the game's own close), not one we are closing: this raise
+    // is answered; ours if it opened soon after our tap)
+    const bool fOpening = s.nReconState == 0 || s.nReconState == 1;
+    if (s.fBinocUp && fOpening && !s.fBinocClosing && !s.fBinocSpent)
+    {
+        if (s.cBinocTry > 0 && t - s.tBinocTap <= 2.0 * kdtBinocRetry) s.fBinocOwned = true;
+        s.fBinocSpent = true;
+    }
+    if (s.fBinocUp && !s.fBinocSpent && !fOpen && t >= s.tBinocReq)
+    {
+        // (never answered: given up, nothing ours; only once an open the last tap caused would no longer count as ours)
+        if (s.cBinocTry >= kcBinocTry)
+        {
+            if (t - s.tBinocTap > 2.0 * kdtBinocRetry) s.fBinocSpent = true;
+        }
+        else
+        {
+            RequestButtons(BTN_R3, 3);
+            ++s.cBinocTry;
+            s.tBinocTap = t;
+            s.tBinocReq = t + kdtBinocRetry;
+        }
+    }
+    if (s.fBinocOwned && !s.fBinocUp && fOwnOpen && t >= s.tBinocReq)
+    {
+        RequestButtons(BTN_R3, 3);
+        s.tBinocReq = t + kdtBinocRetry;
+        s.fBinocClosing = true;
+    }
+}
+
+// (0.1.11) The binocucom's lens (vr.h FLensView): its picture's pixels (square), its quad's distance before your eyes
+// (metres), its size (degrees across, binoc_lens)
+constexpr int kdLensImage = 1024;
+constexpr float kmLens = 2.0f;
+float DegLens() { return std::clamp(Prof().degLens, 10.0f, 90.0f); }
+// The lens is shown: first person at the head, your own binocucom view fully open (raised, or the stick click's)
+bool FLensWanted()
+{
+    return s.sess && s.mode == Mode::FirstPerson && s.lens.h && FFirstPersonEyes() && s.nReconState == 1 && s.nReconView == 0;
+}
+// tan of half the lens's picture's angle: the game's own binocucom view (its vertical field of view now: 7 times
+// narrower at full zoom), so what the lens shows is what the game's photos and sight tests see (CmView, CmPhotoView);
+// binoc_lens only how large it looks before your eyes
+float TanLensView()
+{
+    if (s.radReconFov <= 1e-4f || s.radReconFov >= 3.0f) return std::tan(glm::radians(DegLens()) * 0.5f);
+    return std::tan(0.5f * s.radReconFov);
+}
+// binoc_view = auto: the world goes dark around the lens (only the lens drawn) once the displayed frames have been more
+// than 1.2 display periods apart for 0.75 s with it up; bright again once it has been put away for a second
+void StepLensDark(double t)
+{
+    if (!FLensWanted())
+    {
+        if (t - s.tLensOn > 1.0) s.fLensDarkAuto = false;
+        s.tSlowSince = -1.0;
+        return;
+    }
+    s.tLensOn = t;
+    if (Prof().nBinocView != 0 || s.fLensDarkAuto) return;
+    const double period = s.fs.predictedDisplayPeriod > 0 ? double(s.fs.predictedDisplayPeriod) * 1e-9 : 1.0 / 72.0;
+    if (s.dtFrameAvg <= 1.2 * period) s.tSlowSince = -1.0;
+    else if (s.tSlowSince < 0.0) s.tSlowSince = t;
+    else if (t - s.tSlowSince > 0.75)
+    {
+        s.fLensDarkAuto = true;
+        std::printf("vr: binocucom: the frames fell behind (%.1f ms a frame, the display %.1f): dark around the lens\n",
+                    s.dtFrameAvg * 1e3, period * 1e3);
+    }
+}
+
 // The wristwatch (vr.h FWatchOpen) in the right grip's space (OpenXR's grip: +X out of the back of the right hand, so
 // its palm faces -X; +Y toward the wrist; -Z the thumb's side): on the inside of the wrist, a little off it; the
 // picture's right along the forearm (toward the elbow), its up toward the thumb, its face out of the palm side: upright
@@ -1049,6 +1257,7 @@ void DropInteractions()
     std::fill(std::begin(s.acstepReq), std::end(s.acstepReq), 0);
     s.fClimbStick = false;
     s.fPocketAvail = s.fStealB = s.fStealStance = s.fPocketAvailWas = s.fSwingQuiet = false;
+    s.fAtThigh = s.fTwistPrev = false;   // (the binocucom in your hand stays there while the grip is held: StepBinoc)
 }
 
 // Each controller read: both grips' velocities (LOCAL, m/s: the swing, FGripVelocityLast), at the last frame's time
@@ -1231,6 +1440,12 @@ bool Start(GLFWwindow* window)
         DestroySwap(&s.watch);
         std::fprintf(stderr, "vr: the wristwatch's swapchain was not made (the watch is not shown)\n");
     }
+    // (0.1.11, first person: the binocucom's lens, a square picture in picture; none: the binocucom as before)
+    if (s.mode == Mode::FirstPerson && !FCreateSwap(kdLensImage, kdLensImage, &s.lens))
+    {
+        DestroySwap(&s.lens);
+        std::fprintf(stderr, "vr: the binocucom lens's swapchain was not made (its zoom is not shown)\n");
+    }
     glGenFramebuffers(1, &s.fboBlit);
     // xrWaitFrame paces the frames now: the window's swap must not wait for the monitor too (display.cpp
     // ApplyDisplaySettings keeps it so while a session exists, and Stop() gives the user's VSync back)
@@ -1262,6 +1477,8 @@ void Stop()
     for (SWAP& sw : s.aeye) DestroySwap(&sw);
     DestroySwap(&s.panel);
     DestroySwap(&s.watch);
+    DestroySwap(&s.lens);
+    vrbinoc::FreeGL();
     if (s.fboBlit) glDeleteFramebuffers(1, &s.fboBlit);
     if (s.space) xrDestroySpace(s.space);
     if (s.sess) xrDestroySession(s.sess);
@@ -1302,6 +1519,14 @@ bool BeginFrame(GLFWwindow* window)
     XrFrameWaitInfo wi{XR_TYPE_FRAME_WAIT_INFO};
     s.fs = XrFrameState{XR_TYPE_FRAME_STATE};
     if (!FCheck(xrWaitFrame(s.sess, &wi, &s.fs), "xrWaitFrame")) return false;
+    // (0.1.11) the displayed frames' interval: xrWaitFrame paces them, so one missed shows as twice the display's period
+    // (the binocucom's lens with binoc_view = auto goes dark around it once they fall behind: StepLensDark)
+    {
+        const double tB = TNow();
+        if (s.tBeginPrev > 0.0) s.dtFrameAvg += (std::min(tB - s.tBeginPrev, 0.25) - s.dtFrameAvg) * 0.1;
+        s.tBeginPrev = tB;
+        StepLensDark(tB);
+    }
     XrFrameBeginInfo bi{XR_TYPE_FRAME_BEGIN_INFO};
     if (!FCheck(xrBeginFrame(s.sess, &bi), "xrBeginFrame")) return false;
     s.fBegun = true;
@@ -1384,11 +1609,13 @@ bool EyeView(int k, const CAMERA& cam, VIEWOVERRIDE* pview)
     s.afEyeWorld[k] = true;
     if (s.afEyeWorld[0] && s.afEyeWorld[1])
     {
-        const glm::mat4& m = s.amatEyeWorld[0];
+        // (0.1.11: the head's turn halfway between the eyes' (canted displays: straight ahead between them, as the
+        // binocucom's lens and the head's own space; parallel ones: either eye's))
         s.posHead = 0.5f * (glm::vec3(s.amatEyeWorld[0][3]) + glm::vec3(s.amatEyeWorld[1][3]));
-        s.matHeadRows[0] = glm::normalize(-glm::vec3(m[2]));   // forward (GL eye: back is +z)
-        s.matHeadRows[1] = glm::normalize(-glm::vec3(m[0]));   // left
-        s.matHeadRows[2] = glm::normalize(glm::vec3(m[1]));    // up
+        const glm::mat3 m = glm::mat3_cast(glm::slerp(glm::quat_cast(MatTurnOf(s.amatEyeWorld[0])), glm::quat_cast(MatTurnOf(s.amatEyeWorld[1])), 0.5f));
+        s.matHeadRows[0] = glm::normalize(-m[2]);   // forward (GL eye: back is +z)
+        s.matHeadRows[1] = glm::normalize(-m[0]);   // left
+        s.matHeadRows[2] = glm::normalize(m[1]);    // up
         const XrFovf& fl = s.aview[0].fov;
         const XrFovf& fr = s.aview[1].fov;
         s.tanHeadX = std::max({std::tan(fr.angleRight), -std::tan(fl.angleLeft), 0.1f});
@@ -1561,6 +1788,7 @@ void EndFrame()
 {
     if (s.cframePointer > 0) --s.cframePointer;
     const bool fWatchFrame = std::exchange(s.fWatchFrame, false);   // (SubmitWatch ran: the watch's quad shown)
+    const bool fLensFrame = std::exchange(s.fLensFrame, false);     // (SubmitLens ran: the lens's quad shown)
     s.fMirrorHudKept = false;
     if (!s.fBegun) return;
     // (a frame without the headset's eyes: the head view and the aim's camera are stale from now on)
@@ -1575,6 +1803,22 @@ void EndFrame()
         lp.viewCount = 2;
         lp.views = s.aprojv;
         alayer.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&lp));
+    }
+    // (0.1.11) the binocucom's lens: in the head's own space (it stays before your eyes), over the world, under the HUD
+    XrCompositionLayerQuad ll{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    if (s.fShould && fLensFrame && s.lens.h && s.spaceView && lp.views)
+    {
+        const float w = 2.0f * kmLens * std::tan(glm::radians(DegLens()) * 0.5f);
+        ll.space = s.spaceView;
+        ll.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        ll.subImage.swapchain = s.lens.h;
+        ll.subImage.imageRect.offset = {0, 0};
+        ll.subImage.imageRect.extent = {s.lens.dx, s.lens.dy};
+        ll.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        ll.pose.position = {0.0f, 0.0f, -kmLens};
+        ll.size = {w, w};
+        ll.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;   // (the round mask: premultiplied, vrbinoc)
+        alayer.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ll));
     }
     if (s.fShould && s.fPanel)
     {
@@ -1691,6 +1935,9 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
     // left trigger picks
     const bool fWatchMenu = pr.nGadgetMenu == 0 && s.watch.h;
     StepWatch(fPhys && fWatchMenu && !s.fAtHolster && !s.fHandCal, edge(Ctl_TriggerL), t);
+    // (0.1.11) the binocucom on the left thigh: drawn by the left grip there, raised to your eyes it opens the game's,
+    // twisted it zooms (StepBinoc)
+    StepBinoc(fPhys, af[Ctl_GripL], edge(Ctl_GripL), t);
     // the grips: a new press is offered to vrinteract (FTakeGripPress). One that begins at something to grab
     // (SetGrabZone, the step before) is a grab: its button (R1 on the right) kept from the game for the whole hold. Any
     // other presses its button as before, kcstepGripOffer steps late: until then vrinteract may still take it as a grab
@@ -1703,7 +1950,7 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         const int ctl = k ? Ctl_GripR : Ctl_GripL;
         if (s.acstepGripPending[k] > 0 && --s.acstepGripPending[k] == 0) s.afGripPending[k] = false;
         if (s.afGripPending[k] && !s.afGripGrab[k]) afGripDefer[k] = true;
-        if (!fPhys || !edge(ctl) || (k == 1 && s.fAtHolster)) continue;
+        if (!fPhys || !edge(ctl) || (k == 1 && s.fAtHolster) || (k == 0 && s.fBinocDrawn)) continue;
         if (s.fSprint && (pr.abtnCtl[ctl] & BTN_R1)) s.fSprint = false, s.tSprintRest = -1.0;
         s.afGripPending[k] = true;
         if (s.afGrabZone[k]) s.acstepGripPending[k] = kcstepGripPending, s.afCtlChord[ctl] = true, s.afGripGrab[k] = true;
@@ -1735,6 +1982,7 @@ void ReadControllers(uint16_t* pgrf, float* pxl, float* pyl, float* pxr, float* 
         }
         if (fSly && fBusy) agrfOff[Ctl_TriggerR] |= kgrfAttack;
         if (fBusy || s.afGrabZone[0] || s.afGripGrab[0] || s.afGripGrab[1]) fNoSwing = true;
+        if (s.fBinocDrawn) fNoSwing = true;   // (0.1.11: a swing's Square would close the binocucom; looking, no swings)
         // the steal stance (pickpocket = hold): at a pocket the game would pick, B is not Circle (no instant steal, no
         // stray interaction) but the stance while held: no swing, no attack, no uppercut, so the cane can be brought to
         // the pocket and flicked to take it (vrinteract); B stays the stance until let go, even if the guard moves off
@@ -2109,8 +2357,112 @@ bool FHolsterWorld(const CAMERA& cam, glm::mat4* pmat)
 
 float UnitsPerMetre() { return s.scale; }
 
+// (0.1.11) the binocucom on the left thigh and its lens (vr.h)
+void SetRecon(int nState, int nView, float uZoom, float radFovFar, float radFov)
+{
+    s.nReconState = nState;
+    s.nReconView = nView;
+    s.uReconZoom = std::clamp(uZoom, 0.0f, 1.0f);
+    s.radReconFar = radFovFar;
+    s.radReconFov = radFov;
+}
+bool FBinocDrawn() { return s.sess && s.fBinocDrawn && FFirstPersonEyes(); }
+float DuBinocTwist()
+{
+    const float du = std::exchange(s.duTwist, 0.0f);
+    return FFirstPersonEyes() ? du : 0.0f;
+}
+bool FLensTan(float* ptan)
+{
+    if (!FLensWanted()) return false;
+    *ptan = TanLensView();
+    return true;
+}
+bool FLensDark()
+{
+    const int n = Prof().nBinocView;
+    return FLensWanted() && (n == 2 || (n == 0 && s.fLensDarkAuto));
+}
+bool FLensView(VIEWOVERRIDE* pview)
+{
+    if (!FLensWanted() || !s.fShould || !s.fHead) return false;
+    // (from the eyes' middle, looking as the head does (the two eyes' turns halfway: canted displays look straight
+    // ahead between them, as the lens's quad in the head's space): the eyes' world matrices of this frame, EyeView)
+    glm::mat4 m(glm::mat3(-s.matHeadRows[1], s.matHeadRows[2], -s.matHeadRows[0]));   // (right, up, back)
+    m[3] = glm::vec4(s.posHead, 1.0f);
+    // a symmetric picture whose centred square is the lens (reversed-Z infinite far, as EyeView); the near plane 30 cm
+    // out: your hands and the binocucom itself never in it
+    const float tanV = TanLensView();
+    const float dx = float(std::max(g_gl.renderWidth, 1)), dy = float(std::max(g_gl.renderHeight, 1)), d = std::min(dx, dy);
+    glm::mat4 proj(0.0f);
+    proj[0][0] = (d / dx) / tanV;
+    proj[1][1] = (d / dy) / tanV;
+    proj[2][3] = -1.0f;
+    proj[3][2] = 0.3f * s.scale;
+    pview->matWorldToClip = proj * glm::inverse(m);
+    pview->pos = glm::vec3(m[3]);
+    pview->dir = -glm::vec3(m[2]);
+    pview->fSkipTargets = !FLensDark();   // (dark: the eyes drew nothing, so the lens draws the render targets)
+    return true;
+}
+void SubmitLens()
+{
+    if (!s.fShould || !s.lens.h) return;
+    vrbinoc::DrawLensMask();
+    const int dx = g_gl.renderWidth, dy = g_gl.renderHeight, d = std::min(dx, dy);
+    const int x0 = (dx - d) / 2, y0 = (dy - d) / 2;
+    BlitSceneInto(s.lens, x0, y0, x0 + d, y0 + d);
+    s.fLensFrame = true;
+    // (dark around it: the window's mirror shows the lens on black instead of the dark eye; the resolved picture, its
+    // symmetric field of view, BlitSceneInto having resolved it)
+    if (FLensDark() && NMirror() != 0)
+    {
+        CopyResolved(&s.fboMirror, &s.texMirror, &s.dxMirror, &s.dyMirror, false);
+        s.fMirrorFrame = true;
+        const float tanV = TanLensView(), tx = tanV * float(dx) / float(std::max(d, 1)), ty = tanV * float(dy) / float(std::max(d, 1));
+        s.fovMirror = XrFovf{-std::atan(tx), std::atan(tx), std::atan(ty), -std::atan(ty)};
+    }
+}
+void DrawEyeDark()
+{
+    GLGUARD guard;
+    glBindFramebuffer(GL_FRAMEBUFFER, g_gl.FboScene());
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    GLfloat acol[4]{};
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, acol);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(acol[0], acol[1], acol[2], acol[3]);
+}
+void DrawBinoc(const VIEWOVERRIDE& eye)
+{
+    if (!s.sess || s.mode != Mode::FirstPerson || !FFirstPersonEyes() || !s.fCamLast || Prof().nBinoc != 0) return;
+    // (at your eyes: looking through it (the lens), or about to; the binocucom itself not drawn over them)
+    if (s.fBinocUp) return;
+    glm::mat4 m(1.0f);
+    if (s.fBinocDrawn)
+    {
+        if (!s.afGrip[0]) return;
+        m = s.matCamLast * MatTrackedLocal(s.aposeGrip[0]);
+    }
+    else
+    {
+        glm::vec3 pos(0.0f);
+        glm::mat3 mat(1.0f);
+        if (!FThighLocal(&pos, &mat)) return;
+        m = MatWorldOfLocal(s.matCamLast, pos, mat);
+    }
+    const glm::mat3 matTurn = MatTurnOf(m);
+    glm::mat4 r(matTurn);
+    r[3] = m[3];
+    const glm::mat4 matObj = r * glm::scale(glm::mat4(1.0f), glm::vec3(s.scale));   // (its metres in the world's units)
+    vrbinoc::DrawMesh(eye.matWorldToClip * matObj, matTurn, s.nReconState == 1 ? s.uReconZoom : 0.0f);
+}
+
 bool FAimHeld() { return s.sess && s.fActions && s.fAimHeld && FFirstPersonEyes(); }
-bool FGripHeld(int k) { return k >= 0 && k <= 1 && s.sess && s.fActions && s.afGripHeld[k]; }
+// (0.1.11: the left grip holding the binocucom holds nothing else: no climbing hand over hand with it)
+bool FGripHeld(int k) { return k >= 0 && k <= 1 && s.sess && s.fActions && s.afGripHeld[k] && !(k == 0 && s.fBinocDrawn); }
 
 bool FTakeGripPress(int k)
 {

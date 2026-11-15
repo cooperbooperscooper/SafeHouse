@@ -136,6 +136,9 @@ character. Those with a menu row are also on **Options > VR Settings** (left/rig
 | `pickpocket` | hold | Pickpocket (Hold B / Grab / Button) | `hold` = hold B, then hook and flick; `grab` = grip at a pocket, no B; `button` = the game's B. |
 | `climb` | grab | Climbing | `button` = B only (no grab zones at poles and ledges). |
 | `glide` | lines | Glider | `stick` = the stick only. |
+| `binocucom` | thigh | Binocucom | (0.1.11) `thigh`: grip at the left thigh to draw it, raise it to the eyes to open, twist to zoom. `stick` = the right stick click only (the lens still shows). |
+| `binoc_view` | auto | Binocucom Lens | (0.1.11) `auto`: the zoomed lens as a picture in picture, the world going dark around it if frames fall behind (log: `vr: binocucom: the frames fell behind`); `lens` = never dark; `dark` = always dark around it. |
+| `binoc_lens` | 50 | (none) | (0.1.11) How large the lens looks before your eyes, degrees across (10-90). It always shows the game's own binocucom view (zoomed out about 57 degrees, 7x at full zoom), so photos and what guards can see match it. |
 | `swing_speed` | 2.5 | (none) | m/s for a cane swing to attack. Accidental attacks → raise it. |
 | `hands` | auto | (none) | `left,right` indices from the `-Bones` log's `vr hands:` table, if the automatic choice is wrong. |
 | `hand_rot` / `hand_rot_left` | auto | (none) | `auto` = from the T-pose. A value under a character's section wins for that character (the X helper writes one; since 0.1.10 it accounts for `hand_turn`, so one saved before 0.1.10 with a non-zero `hand_turn` is off by it: do the X helper again). |

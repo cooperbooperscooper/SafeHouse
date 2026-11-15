@@ -54,6 +54,13 @@ int main(int, char** argv) {
     CHECK(FSave("default", "hand_rot", "5,5,5"));
     FLoad(); CHECK(!Profile(Char::Murray).fHandOwnR && Profile(Char::Murray).degHandR.x == 5.0f);
     setenv("SLY2N_VR_TPOSE", "0", 1); FLoad(); CHECK(!FTPose(nullptr, nullptr)); unsetenv("SLY2N_VR_TPOSE");
+    // (0.1.11) the binocucom: on the thigh, its lens auto at 40 degrees by default; the keys read; a bad value ignored
+    CHECK(Profile(Char::Sly).nBinoc == 0 && Profile(Char::Sly).nBinocView == 0 && Profile(Char::Sly).degLens == 50.0f);
+    CHECK(FSave("default", "binocucom", "stick") && FSave("bentley", "binoc_view", "dark") && FSave("default", "binoc_lens", "55"));
+    FLoad();
+    CHECK(Profile(Char::Sly).nBinoc == 1 && Profile(Char::Bentley).nBinocView == 2 && Profile(Char::Sly).nBinocView == 0);
+    CHECK(Profile(Char::Murray).degLens == 55.0f);
+    CHECK(FSave("default", "binoc_lens", "500")); FLoad(); CHECK(Profile(Char::Sly).degLens == 50.0f);
     std::printf("%s (%d failures)\n", fails ? "FAILED" : "all passed", fails);
     return fails != 0;
 }

@@ -191,6 +191,24 @@ int TakeWatchPick();
 // wrist (EndFrame shows it while open).
 void BeginWatchLayer();
 void SubmitWatch();
+// (0.1.11) The binocucom on the left thigh (binocucom = thigh): the left grip at the pouch draws it into the left hand
+// (a tick on reaching it, a buzz on the draw; let go, it goes back); raised to your eyes, the game's binocucom opens
+// (R3 tapped for you), lowered it closes; twisted like a ring (clockwise as you look through it) it zooms in. vrinteract
+// gives the game's binocucom each step (SetRecon: ACTOR nF04, nF20, the zoom 0..1, the fields of view zoomed out and
+// now, radians); cplcy takes the twist's zoom (DuBinocTwist: the change since it last asked, 0..1 of the whole).
+void SetRecon(int nState, int nView, float uZoom, float radFovFar, float radFov);
+bool FBinocDrawn();
+float DuBinocTwist();
+// The binocucom's lens (your own binocucom view open, first person): its zoomed picture drawn once more from your eyes'
+// middle (FLensView: false, none this frame), its round mask and copy (SubmitLens), shown before your eyes as a picture
+// in picture. FLensDark: the eyes drawn dark this frame instead (DrawEyeDark), only the lens (binoc_view). FLensTan:
+// tan of half its angle (CmView: what you can see is what the lens shows). DrawBinoc: the binocucom itself, per eye.
+bool FLensView(VIEWOVERRIDE* pview);
+void SubmitLens();
+bool FLensDark();
+bool FLensTan(float* ptan);
+void DrawEyeDark();
+void DrawBinoc(const VIEWOVERRIDE& eye);
 
 // Once per displayed frame, before drawing: waits for the headset's timing and reads where the eyes are. True when
 // this frame is to be drawn for the headset (else draw only the window, as usual). EndFrame must follow every
@@ -268,6 +286,15 @@ inline bool FWatchState(std::vector<std::string>*, int*, int*) { return false; }
 inline int TakeWatchPick() { return -1; }
 inline void BeginWatchLayer() {}
 inline void SubmitWatch() {}
+inline void SetRecon(int, int, float, float, float) {}
+inline bool FBinocDrawn() { return false; }
+inline float DuBinocTwist() { return 0.0f; }
+inline bool FLensView(VIEWOVERRIDE*) { return false; }
+inline void SubmitLens() {}
+inline bool FLensDark() { return false; }
+inline bool FLensTan(float*) { return false; }
+inline void DrawEyeDark() {}
+inline void DrawBinoc(const VIEWOVERRIDE&) {}
 inline bool BeginFrame(GLFWwindow*) { return false; }
 inline bool EyeView(int, const CAMERA&, VIEWOVERRIDE*) { return false; }
 inline void SubmitEye(int) {}

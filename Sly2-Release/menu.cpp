@@ -87,6 +87,7 @@ enum NATIVEID : int
     NID_VrPage, NID_VrSlySize, NID_VrHandSize, NID_VrHandRotX, NID_VrHandRotY, NID_VrHandRotZ, NID_VrHandOffX, NID_VrHandOffY,
     NID_VrHandOffZ, NID_VrCaneSize, NID_VrCaneRotX, NID_VrCaneRotY, NID_VrCaneRotZ, NID_VrCaneOffX,
     NID_VrCaneOffY, NID_VrCaneOffZ, NID_VrTurnSpeed, NID_VrShowHands, NID_VrCaneFit, NID_VrTurnMode, NID_VrGadgetMenu, NID_VrPickpocket, NID_VrClimb, NID_VrGlide,
+    NID_VrBinoc, NID_VrBinocView,   // (0.1.11: the binocucom on the thigh, its lens)
     NID_VrReset,
 };
 constexpr uint32_t PFN_NativeDisplay = 0xFFFF0001;   // (a native select function)
@@ -492,6 +493,8 @@ std::string StrNative(int id)
     case NID_VrPickpocket: return StrVr("Pickpocket", pr.nSteal == 0 ? "Hold B" : pr.nSteal == 1 ? "Grab" : "Button");
     case NID_VrClimb: return StrVr("Climbing", pr.fGrabClimb ? "Grab" : "Button");
     case NID_VrGlide: return StrVr("Glider", pr.fGlideLines ? "Hand Lines" : "Stick");
+    case NID_VrBinoc: return StrVr("Binocucom", pr.nBinoc == 0 ? "On Thigh" : "Stick Click");
+    case NID_VrBinocView: return StrVr("Binocucom Lens", pr.nBinocView == 0 ? "Auto" : pr.nBinocView == 1 ? "Picture in Picture" : "Dark Around");
     case NID_VrReset: return StrToGameText("Reset VR Settings");
     case NID_DisplayPage: return StrPort(PTX_DisplayOptions);
     case NID_ControlsPage: return StrPort(PTX_ControlsAndPrompts);
@@ -744,7 +747,7 @@ const char* SzSecVr(const char* szKey)
     return vr::CharacterCur() != vrprofile::Char::Default && vrprofile::FHasKey(szChar, szKey) ? szChar : "default";
 }
 
-bool FVrToggle(int id) { return id >= NID_VrShowHands && id <= NID_VrGlide; }
+bool FVrToggle(int id) { return id >= NID_VrShowHands && id <= NID_VrBinocView; }
 
 // a row's value a step down (n -1) or up (1): the sizes and shifts held at their ends unless fWrap (Cross, the mouse's
 // only way: round to the start), the turns always round, the toggles flipped either way. 1: saved (and live), -1: the
@@ -807,6 +810,13 @@ int StepVr(const MENUENT& e, int n, bool fWrap)
     }
     case NID_VrClimb: f = vrprofile::FSave(SzSecVr("climb"), "climb", pr.fGrabClimb ? "button" : "grab"); break;
     case NID_VrGlide: f = vrprofile::FSave(SzSecVr("glide"), "glide", pr.fGlideLines ? "stick" : "lines"); break;
+    case NID_VrBinoc: f = vrprofile::FSave(SzSecVr("binocucom"), "binocucom", pr.nBinoc == 0 ? "stick" : "thigh"); break;
+    case NID_VrBinocView:   // (three ways: auto, lens, dark; round in either direction)
+    {
+        static const char* const asz[] = {"auto", "lens", "dark"};
+        f = vrprofile::FSave(SzSecVr("binoc_view"), "binoc_view", asz[(std::clamp(pr.nBinocView, 0, 2) + (n < 0 ? 2 : 1)) % 3]);
+        break;
+    }
     default: return 0;
     }
     return f ? 1 : -1;
@@ -840,7 +850,8 @@ bool FResetVr()
            save("turn", d.fSmoothTurn ? "smooth" : "snap") && save("turn_speed", achTurn) &&
            save("gadget_menu", d.nGadgetMenu == 0 ? "watch" : "button") &&
            save("pickpocket", d.nSteal == 0 ? "hold" : d.nSteal == 1 ? "grab" : "button") && save("climb", d.fGrabClimb ? "grab" : "button") &&
-           save("glide", d.fGlideLines ? "lines" : "stick");
+           save("glide", d.fGlideLines ? "lines" : "stick") && save("binocucom", d.nBinoc == 0 ? "thigh" : "stick") &&
+           save("binoc_view", d.nBinocView == 0 ? "auto" : d.nBinocView == 1 ? "lens" : "dark");
 }
 
 // a change's sound: the menu's row step (0x35, as the slot pages' L1 / R1), the error sound when it was not saved
@@ -1089,7 +1100,7 @@ std::vector<MENUENT> AentVrSettings()
         a.push_back(e);
     };
     add(NID_VrRecalibrate, PFN_NativeVrRecalibrate);
-    for (int id = NID_VrSlySize; id <= NID_VrGlide; ++id) add(id, PFN_NativeVr);
+    for (int id = NID_VrSlySize; id <= NID_VrBinocView; ++id) add(id, PFN_NativeVr);
     add(NID_VrReset, PFN_NativeVrReset);
     return a;
 }

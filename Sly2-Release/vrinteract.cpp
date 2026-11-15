@@ -8,6 +8,8 @@
 #include "actor.h"
 #include "alo.h"
 #include "brx.h"
+#include "cm.h"
+#include "cplcy.h"
 #include "crv.h"
 #include "disc.h"
 #include "gadget.h"
@@ -297,7 +299,11 @@ void VrStepInteract(SW* psw)
     PLAYER p;
     const LO* ploCur = psw ? PloPoCurrent(psw) : nullptr;
     const bool fMenu = FPcMenuMode() || FShopShown() || (ploCur && ploCur->Cid() == 0x46);
-    if (!vr::Active() || !vr::FFirstPersonEyes() || fMenu || !FPlayerOf(psw, &p))
+    // (0.1.11) the game's binocucom, for vr.cpp's physical one and its lens: every step, a menu up too
+    const bool fPlayer = FPlayerOf(psw, &p);
+    if (fPlayer) vr::SetRecon(p.pa->nF04, p.pa->nF20, g_cmpolicies.cprecon.uZoom, g_cmpolicies.cprecon.radFOVFar, g_cm.radFOV);
+    else vr::SetRecon(-1, -1, 0.0f, 0.0f, 0.0f);
+    if (!vr::Active() || !vr::FFirstPersonEyes() || fMenu || !fPlayer)
     {
         ClearZones();
         return;

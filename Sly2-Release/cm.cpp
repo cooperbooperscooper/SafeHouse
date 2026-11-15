@@ -694,9 +694,15 @@ const CM& CmView()
     static CM s_cm;
     static int s_frame = -1;
     static uint64_t s_serial = ~uint64_t(0);
-    if (s_frame == g_frameJoy && s_serial == serial) return s_cm;
+    // (0.1.11, VR: the binocucom's lens with the world dark around it: what you see is the game's binocucom view, as
+    // flat; with the world around it still drawn, the head's)
+    const bool fLensDark = vr::FLensDark();
+    static bool s_fLensDark = false;
+    if (s_frame == g_frameJoy && s_serial == serial && s_fLensDark == fLensDark) return s_cm;
     s_frame = g_frameJoy;
     s_serial = serial;
+    s_fLensDark = fLensDark;
+    if (float tanLens = 0.0f; fLensDark && vr::FLensTan(&tanLens)) tanX = tanY = tanLens;   // (the lens: square, as drawn)
     s_cm = g_cm;
     s_cm.pos = pos;
     s_cm.mat = matRows;
@@ -704,6 +710,29 @@ const CM& CmView()
     s_cm.yScreenRange = tanY;
     s_cm.rAspect = tanX / tanY;
     // (UpdateCmMat4's planes, for the head)
+    BuildFrustrum(s_cm.mat, s_cm.xScreenRange, s_cm.yScreenRange, s_cm.anormalFrustrum.data());
+    for (int i = 0; i < 3; ++i)
+        s_cm.anormalFrustrumTranspose[i] = glm::vec4(s_cm.anormalFrustrum[0][i], s_cm.anormalFrustrum[1][i],
+                                                     s_cm.anormalFrustrum[2][i], s_cm.anormalFrustrum[3][i]);
+    BuildFrustrum(s_cm.mat, s_cm.xScreenRange * F32(0x40FDC28F), s_cm.yScreenRange * F32(0x4190CCCD), s_cm.anormalFrustrumWide.data());
+    for (int i = 0; i < 3; ++i)
+        s_cm.anormalFrustrumTransposeWide[i] = glm::vec4(s_cm.anormalFrustrumWide[0][i], s_cm.anormalFrustrumWide[1][i],
+                                                         s_cm.anormalFrustrumWide[2][i], s_cm.anormalFrustrumWide[3][i]);
+    return s_cm;
+}
+
+const CM& CmPhotoView()
+{
+    const CM& cm = CmView();
+    float tanLens = 0.0f;
+    if (&cm == &g_cm || vr::FLensDark() || !vr::FLensTan(&tanLens)) return cm;
+    // (the lens up with the world around it: the head's pose, the lens's own view (the game's binocucom's vertical
+    // angle, square): a photo target must be in the lens, sized as flat)
+    static CM s_cm;
+    s_cm = cm;
+    s_cm.xScreenRange = tanLens;
+    s_cm.yScreenRange = tanLens;
+    s_cm.rAspect = 1.0f;
     BuildFrustrum(s_cm.mat, s_cm.xScreenRange, s_cm.yScreenRange, s_cm.anormalFrustrum.data());
     for (int i = 0; i < 3; ++i)
         s_cm.anormalFrustrumTranspose[i] = glm::vec4(s_cm.anormalFrustrum[0][i], s_cm.anormalFrustrum[1][i],
