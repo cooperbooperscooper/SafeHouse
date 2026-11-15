@@ -41,7 +41,7 @@ FIRST TEST RUN (in this order: each step narrows down a problem if one comes up)
 
 CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip, USE with the trigger
   Left stick        move (where you look)       click: sprint on/off      hold the click: world stats
-  Right stick       snap turn                   click: binocucom
+  Right stick       turn (smooth; snap in VR Settings)   click: binocucom
   A                 jump
   B                 interact / grab: the button way of climbing; at a guard's pocket: HOLD it to steal (below)
   X                 uppercut (or swing the cane upward)
@@ -52,7 +52,8 @@ CONTROLS (first person, Quest Touch)  - one rule everywhere: GRAB with the grip,
                     and in the air: the paraglider (jump, then the right grip; keep holding it)
   Left grip         grab (pockets, poles, ledges)
   The Menu button (three lines) belongs to Steam Link / Quest Link and is not used by the game.
-  Bentley: darts on the right trigger, his swing on the right grip.
+  Bentley: hold the left trigger to ready his darts (no binocucom needed), the right trigger fires;
+  his swing on the right grip.
 
 USING YOUR HANDS (first person)
   The cane      Reach behind your right shoulder (a tick in your hand) and grip: the cane goes on your back, and
@@ -72,9 +73,12 @@ USING YOUR HANDS (first person)
   operator: look around freely, the black bars are gone, and a quick fade covers each camera cut.
 
 VR SETTINGS (in the game: Options > VR Settings, from the pause menu or the title)
-  Recalibrate (T-pose), Sly Size, Cane Size, Cane Turn X/Y/Z, Cane Shift X/Y/Z, Hands on/off, Gadget Menu
-  (wristwatch or the Y button), Pickpocket (hold B, grab or button), Climbing (grab or button), Glider (hand lines or
-  stick), Reset. Move the left stick left / right to change a value: it applies at once and is saved.
+  Recalibrate (T-pose), Sly Size, Hand Size, Hand Turn and Shift X/Y/Z, Cane Size, Cane Turn and Shift X/Y/Z,
+  Turn Speed, Hands on/off, Cane Fit (on your hand or on the grip), Turning (smooth or snap), Gadget Menu
+  (wristwatch or the Y button), Pickpocket (hold B, grab or button), Climbing (grab or button), Glider (hand
+  lines or stick), Reset. Move the left stick left / right to change a value: it applies at once and is saved.
+  The defaults are your own headset-tuned values (Sly Size 150%, Hand Size 50%, the hand and cane turns and
+  shifts you set); Reset goes back to them.
 
 HELPERS (hold the LEFT stick click, then quickly press)
   A   reload Sly2VR.ini (after editing it while the game runs)

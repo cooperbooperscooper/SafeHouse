@@ -41,7 +41,10 @@ namespace
 // Reaches in game units (the world's own sizes, whatever your scale): a bare hand at a pocket's point, the drawn cane's
 // hook there (its crook is smaller than a palm's reach), a hand (or the hook) at a climbable's real geometry.
 constexpr float kSReachPocket = 40.0f;
-constexpr float kSReachPocketHook = 35.0f;
+constexpr float kSReachPocketHook = 55.0f;   // (0.1.3: 35 -> 55)
+// (0.1.3) climbing's ratchet: a short tick on the pulling hand for every this much hand travel, so a pull feels like
+// rungs, not a slider
+constexpr float kMClimbTick = 0.10f;
 constexpr float kSReachClimb = 45.0f;
 // Hand over hand: the gripping hand's speed (m/s, in your own space) that is the stick pushed all the way.
 constexpr float kMpsClimbFull = 0.9f;
@@ -60,6 +63,7 @@ struct STATE
     int cstepBuzz2 = 0;
     int cstepHookNear = 1000;         // (pickpocket = hold) steps since the hook was at the pocket, the steal's pause, the beat
     int cstepStealCool = 0, cstepStanceBeat = 0;
+    float mClimb = 0.0f;              // the hand travel since the climb's last tick, metres
     ACTOR* paWatch = nullptr;         // the watch's entries as last sent: whose, the gadgets, their names, slot 0's
     std::vector<int> aidWatch;
     std::vector<std::string> astrWatch;
@@ -321,7 +325,7 @@ void VrStepInteract(SW* psw)
     const bool fHook = p.psly && vr::FCaneDrawn() && FVrCaneHook(&posHook);
 
     // (a) pockets (pickpocket: 0 hold B, then the hook or a bare hand at the pocket flicked; 1 a grip at it, no B; 2 the
-    // game's B only): each bare hand, or the hook in place of the right hand while the cane is drawn. With hold, B at a
+    // game's B only): each bare hand, and the right one's cane hook too while the cane is drawn. With hold, B at a
     // pocket the game would pick is the stance (vr.cpp: no attacks while it is held); reach and steals only in it
     bool afPocket[2]{};
     LO* ploGuard = nullptr;
@@ -329,22 +333,25 @@ void VrStepInteract(SW* psw)
     const bool fAvail = p.psly && pr.nSteal != 2 && FPocketPoint(p.psly, &ploGuard, &posPocket);
     vr::SetPocketAvailable(fAvail && pr.nSteal == 0);
     const bool fStance = pr.nSteal == 0 && vr::FStealStance();
+    bool fHookAt = false;   // (the hook itself at the pocket: only it gets the moment-after grace)
     if (fAvail && (pr.nSteal == 1 || fStance))
         for (int k = 0; k < 2; ++k)
         {
-            if (k == 1 && fHook) afPocket[k] = glm::distance(posHook, posPocket) < kSReachPocketHook;
-            else afPocket[k] = afHand[k] && glm::distance(aposHand[k], posPocket) < kSReachPocket;
+            // (0.1.3: with the cane drawn, the hook OR the right hand itself: the hook alone missed when the cane sat
+            // off the grip)
+            afPocket[k] = afHand[k] && glm::distance(aposHand[k], posPocket) < kSReachPocket;
+            if (k == 1 && fHook && glm::distance(posHook, posPocket) < kSReachPocketHook) afPocket[k] = fHookAt = true;
         }
     const bool fPocketNear = afPocket[0] || afPocket[1];
     // the hold's steal: in the stance, the hook or bare hand at the pocket flicked (the hook still counts a moment after
     // it was there); one steal, then a pause
     bool fStolen = false;
     if (s.cstepStealCool > 0) --s.cstepStealCool;
-    s.cstepHookNear = afPocket[1] && fHook ? 0 : std::min(s.cstepHookNear + 1, 1000);
+    s.cstepHookNear = fHookAt ? 0 : std::min(s.cstepHookNear + 1, 1000);
     if (fStance && fAvail && s.cstepStealCool == 0)
         for (int k = 0; k < 2 && !fStolen; ++k)
         {
-            const bool fAt = k == 1 && fHook ? s.cstepHookNear <= kcstepHookRecent : afPocket[k];
+            const bool fAt = afPocket[k] || (k == 1 && fHook && s.cstepHookNear <= kcstepHookRecent);
             glm::vec3 velWorld(0.0f), velLocal(0.0f);
             if (!fAt || !vr::FGripVelocityLast(k, &velWorld, &velLocal) || glm::length(velLocal) < kMpsStealFlick) continue;
             Steal(ploGuard, k);
@@ -431,13 +438,25 @@ void VrStepInteract(SW* psw)
         tanPipe = glm::length(tanPipe) > 1e-4f ? glm::normalize(tanPipe) : glm::vec3(0.0f, 0.0f, 1.0f);
         glm::vec2 dirPipe(glm::dot(tanPipe, right), tanPipe.z);
         dirPipe = glm::length(dirPipe) > 1e-3f ? glm::normalize(dirPipe) : glm::vec2(0.0f, 1.0f);
+        int kPull = -1;
         for (int k = 0; k < 2; ++k)
         {
             glm::vec3 velWorld(0.0f), velLocal(0.0f);
             if (!vr::FGripHeld(k) || !vr::FGripVelocityLast(k, &velWorld, &velLocal)) continue;
             const glm::vec2 v = dirPipe * (-glm::dot(velWorld, tanPipe) / upm / kMpsClimbFull);
-            if (glm::length(v) > glm::length(vStick)) vStick = v;
+            if (glm::length(v) > glm::length(vStick)) vStick = v, kPull = k;
         }
+        // (the ratchet: the pulling hand ticks every 10 cm it travels, at 60 steps a second)
+        if (kPull >= 0 && glm::length(vStick) > 0.35f)
+        {
+            s.mClimb += glm::length(vStick) * kMpsClimbFull / 60.0f;
+            if (s.mClimb >= kMClimbTick)
+            {
+                s.mClimb = 0.0f;
+                vr::Pulse(kPull, 0.3f, 0.02f);
+            }
+        }
+        else s.mClimb = 0.0f;
         // (taken over from 0.35 only, and then past joy.cpp's 0.35 dead zone, so the game moves: a slow hand leaves the
         // stick to you)
         if (const float l = glm::length(vStick); l > 0.35f)

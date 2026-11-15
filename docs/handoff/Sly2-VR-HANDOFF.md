@@ -117,8 +117,11 @@ character. **Reload in game:** hold the left stick click + A (or Ctrl+F8 on the 
 | `player_eye_height` | 0 | Set by the T-pose (or the height helper), metres. 0 = use `scale`. |
 | `tpose_left` / `tpose_right` / `tpose_span` | (none) | Written by the T-pose. Delete the two `tpose_` lines (or use Options > Recalibrate VR) to be asked again. |
 | `show_hands` | 1 | First person: 1 = Sly's hands on the controllers, 0 = only the cane. |
-| `sly_size` / `cane_size` | 1.1 / 0.9 | You as a bigger Sly (the world looks smaller); the drawn cane's size. Also on Options > VR Settings. |
-| `cane_rot` / `cane_offset` | 0,0,0 | The cane's turn (degrees) and shift (cm) in the grip (grip axes: x palm, y back of the hand, z little finger). |
+| `sly_size` / `cane_size` | 1.5 / 0.9 | You as a bigger Sly (the world looks smaller); the drawn cane's size. Also on Options > VR Settings. (Defaults since 0.1.9 = the player's headset tuning.) |
+| `cane_rot` / `cane_offset` | -30,-5,-40 / -3,-1,-4 | The cane's turn (degrees) and shift (cm), on the tuned hand with `cane_fit = hand` (else on the raw grip). |
+| `hand_size` / `hand_turn` / `hand_offset` | 0.5 / 0,-5,-10 / 7,1,0 | The bare hands' size (Bentley x0.8, Murray x0.7 via `hand_scale`), turn and shift on the grips (left mirrored). |
+| `cane_fit` | hand | `hand` = the cane rides the tuned hand; `grip` = the raw grip (0.1.2). |
+| `turn` / `turn_speed` | smooth / 120 | Right stick: smooth turning at degrees per second, or `snap` (30° flicks). |
 | `gadget_menu` | watch | `watch` = the right-wrist picker; `button` = Y opens the game's gadget menu. |
 | `pickpocket` | hold | `hold` = hold B at a pocket (no attacks), hook and flick; `grab` = grip at it, no B; `button` = the game's B. |
 | `climb` | grab | `grab` = reach and grip (B still works); `button` = B only. |

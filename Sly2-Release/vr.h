@@ -160,6 +160,8 @@ float UnitsPerMetre();
 // The grips: held now; a new press (TakeGripPress takes it once: it then presses nothing else until let go).
 bool FGripHeld(int k);
 bool FTakeGripPress(int k);
+// (0.1.6) Bentley's aim held (the left trigger, first person): his darts are ready without the binocucom.
+bool FAimHeld();
 // (vrinteract, each step) Hand k is at something it can grab (a pocket, a climbable): its grip is a grab (not its button),
 // the swing gestures are off, a tick on entering. SetPocketNear: a pocket is in reach of either hand (no attacks: no
 // swings, no right trigger, while it is).
@@ -251,6 +253,7 @@ inline bool FGripVelocityLast(int, glm::vec3*, glm::vec3*) { return false; }
 inline bool FHolsterWorld(const CAMERA&, glm::mat4*) { return false; }
 inline float UnitsPerMetre() { return 100.0f; }
 inline bool FGripHeld(int) { return false; }
+inline bool FAimHeld() { return false; }
 inline bool FTakeGripPress(int) { return false; }
 inline void SetGrabZone(int, bool) {}
 inline void SetPocketNear(bool) {}

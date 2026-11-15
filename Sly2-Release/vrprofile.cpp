@@ -73,10 +73,16 @@ eye = 25                  ; first person: the eye's height above the character's
 hand_rot = auto           ; the right hand's turn on the controller: auto (the T-pose's), or degrees x,y,z
 ; hand_rot_left = 0,0,0   ; the left hand's (default: the right's mirror image)
 show_hands = 1            ; first person: 1 shows the character's hands on your controllers, 0 only the cane
-sly_size = 1.1            ; first person: you as a bigger (more than 1) or smaller Sly; the world and your height follow
+sly_size = 1.5            ; first person: you as a bigger (more than 1) or smaller Sly; the world and your height follow
+hand_size = 0.5           ; the bare hands drawn x this (about the wrist; also on the VR Settings page, in the pause menu too)
+turn = smooth             ; the right stick turns you: smooth, or snap (30 degrees a flick)
+turn_speed = 120          ; the smooth turn's speed at full stick, degrees a second
+cane_fit = hand           ; hand: the cane rides your tuned hand (the glove and the cane stay together); grip: the raw controller grip
+hand_turn = 0,-5,-10      ; the hands' turn on your grips, degrees x,y,z (the left mirrored)
+hand_offset = 7,1,0       ; the hands' shift on your grips, centimetres x,y,z (the left mirrored)
 cane_size = 0.9           ; the cane drawn in your hand x this (its reach in the game is unchanged)
-cane_rot = 0,0,0          ; the cane's turn in your grip, degrees x,y,z (also on the VR Settings page)
-cane_offset = 0,0,0       ; the cane's shift in your grip, centimetres x,y,z
+cane_rot = -30,-5,-40     ; the cane's turn in your grip, degrees x,y,z (also on the VR Settings page)
+cane_offset = -3,-1,-4    ; the cane's shift in your grip, centimetres x,y,z
 gadget_menu = watch       ; watch: turn your right wrist to you, point with the left hand, pull the left trigger; button: Y
 pickpocket = hold         ; hold: at a pocket hold B (the cane can't attack), bring its hook there, flick the cane
 ;                           (grab: reach for the pocket and grip, no B needed; button: B only, the game's way)
@@ -205,8 +211,13 @@ PROFILE ProfileBuiltIn(Char c)
         p.abtnCtl[Ctl_TriggerR] = BTN_R1;
         p.abtnCtl[Ctl_GripR] = BTN_Square;
         p.btnSwingUp = 0;
+        p.handCharScale = 0.8f;
     }
-    else if (c == Char::Murray) p.sEye = 45.0f;
+    else if (c == Char::Murray)
+    {
+        p.sEye = 45.0f;
+        p.handCharScale = 0.7f;
+    }
     return p;
 }
 
@@ -231,8 +242,25 @@ void Apply(const SECTION& sec, const char* szSection, PROFILE* pp)
         else if (key == "forearm") fOk = FBool(val, &pp->fForearm);
         else if (key == "calibrated") fOk = FBool(val, &pp->fCalibrated);
         else if (key == "show_hands") fOk = FBool(val, &pp->fShowHands);
-        else if (key == "sly_size") fOk = FFloat(val, &g) && g >= 0.5f && g <= 2.0f && (pp->slySize = g, true);
-        else if (key == "cane_size") fOk = FFloat(val, &g) && g >= 0.3f && g <= 2.0f && (pp->caneSize = g, true);
+        else if (key == "hand_size") fOk = FFloat(val, &g) && g >= 0.05f && g <= 50.0f && (pp->handSize = g, true);
+        else if (key == "hand_scale") fOk = FFloat(val, &g) && g >= 0.05f && g <= 20.0f && (pp->handCharScale = g, true);
+        else if (key == "turn")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "smooth" || l == "snap";
+            if (fOk) pp->fSmoothTurn = l == "smooth";
+        }
+        else if (key == "turn_speed") fOk = FFloat(val, &g) && g >= 10.0f && g <= 720.0f && (pp->degsTurn = g, true);
+        else if (key == "cane_fit")
+        {
+            const std::string l = Lower(val);
+            fOk = l == "hand" || l == "grip";
+            if (fOk) pp->fCaneOnHand = l == "hand";
+        }
+        else if (key == "hand_turn") fOk = FVec3(val, &pp->degHand);
+        else if (key == "hand_offset") fOk = FVec3(val, &pp->cmHand);
+        else if (key == "sly_size") fOk = FFloat(val, &g) && g >= 0.05f && g <= 50.0f && (pp->slySize = g, true);
+        else if (key == "cane_size") fOk = FFloat(val, &g) && g >= 0.05f && g <= 50.0f && (pp->caneSize = g, true);
         else if (key == "cane_rot") fOk = FVec3(val, &pp->degCane);
         else if (key == "cane_offset") fOk = FVec3(val, &pp->cmCane);
         else if (key == "gadget_menu")
